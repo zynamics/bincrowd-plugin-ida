@@ -178,7 +178,7 @@ def read_config_file():
         if len(lines) < 2:
             return (None, None)
     
-        return (lines[0], lines[1])
+        return (lines[0].rstrip("\r\n"), lines[1].rstrip("\r\n"))
     except:
         return (None, None)
     
@@ -243,6 +243,7 @@ def bincloud_upload():
         print "uploading function info to server"
         print "prime:", prime
         print "edges:", e
+        print "parameters: ", parameters
     rpc_srv = xmlrpclib.ServerProxy(RPCURI,allow_none=True)
     response = rpc_srv.upload(parameters)
     print "response:", response
