@@ -188,7 +188,7 @@ def bincloud_upload():
     user, password = read_config_file()
 
     if name == None:
-    	print "Error: Could not read config file"
+    	print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
     	return
     
     # Gather details from idb
@@ -304,6 +304,11 @@ class MyChoose(Choose):
 def bincloud_download():
     print "requesting information for function at 0x%X"%here()
     user, password = read_config_file()
+    
+    if name == None:
+    	print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
+    	return
+
     # Gather details from idb
     p = proxyGraph( here())
     e = extract_edge_tuples_from_graph( p )
