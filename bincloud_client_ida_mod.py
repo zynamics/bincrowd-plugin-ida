@@ -1,4 +1,6 @@
 import sets
+import sys
+import os
 from bincloud_client_common import *
 import xmlrpclib #import dumps, loads, ServerProxy
 DEBUG = False
@@ -6,10 +8,8 @@ DEBUG = False
 """
 BINCLOUD PARAMETERS
 """
-USER = "bincrowd"
-PASSWORD = "getonthemove"
-#RPCURI = "http://localhost:8000/RPC2/"
-RPCURI = "http://bincrowd.zynamics.com/bincrowd/RPC2/"
+RPCURI = "http://localhost:8000/RPC2/"
+#RPCURI = "http://bincrowd.zynamics.com/bincrowd/RPC2/"
 UPLOADHOTKEY = "Ctrl-1"
 DOWNLOADHOTKEY = "Ctrl-2"
 # Test string added to some of optional parameters 
@@ -160,9 +160,37 @@ def edges_array_to_dict(e):
                 'targetCallNum'           : 0  } )
     return edges
     
-def bincloud_upload ():
+def read_config_file():
+    print "Reading configuration file"
+    
+    directory = os.path.dirname(sys.argv[0])
+    configuration_file = directory + "/bincrowd.cfg"
+
+    if DEBUG:
+        print "Determined script directory: %s" % directory
+        print "Determined configuration file : %s" % configuration_file
+
+    try:
+        config_file = open(configuration_file, "r")
+        lines = config_file.readlines()
+        config_file.close()
+    
+        if len(lines) < 2:
+            return (None, None)
+    
+        return (lines[0], lines[1])
+    except:
+        return (None, None)
+    
+def bincloud_upload():
     print "Submitting function at 0x%X"%here()
 
+    user, password = read_config_file()
+
+    if name == None:
+    	print "Error: Could not read config file"
+    	return
+    
     # Gather details from idb
     p = proxyGraph( here())
     e = extract_edge_tuples_from_graph( p )
@@ -203,7 +231,7 @@ def bincloud_upload ():
         }
 
     parameters = {
-                 'username':USER, 'password':PASSWORD, 'version':'0.1',
+                 'username':user, 'password':password, 'version':'0.1',
                  'name':name, 'description':description,                                
                  'primeProduct':'%d'%prime, 'edges':edges, 
                  'functionInformation':functionInformation,                                 
@@ -275,6 +303,7 @@ class MyChoose(Choose):
  
 def bincloud_download():
     print "requesting information for function at 0x%X"%here()
+    user, password = read_config_file()
     # Gather details from idb
     p = proxyGraph( here())
     e = extract_edge_tuples_from_graph( p )
@@ -287,7 +316,7 @@ def bincloud_download():
         print "prime:", prime
         print "edges:", e
     parameters = {
-                 'username':USER, 'password':PASSWORD, 'version':'0.1',
+                 'username':user, 'password':password, 'version':'0.1',
                  'primeProduct':'%d'%prime,'edges':edges, 
                  }
     rpc_srv = xmlrpclib.ServerProxy(RPCURI,allow_none=True)
