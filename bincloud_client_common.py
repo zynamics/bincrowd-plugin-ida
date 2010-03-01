@@ -115,10 +115,10 @@ class GraphBFS:
     def find_root(self, nodes):
         """Finds the root node of a view. Note that this function is a bit imprecise
             but it should do the trick for most views."""
-        for node in nodes:
-            if len(node.parents) == 0:
-                return node
-        return nodes[0]
+#        for node in nodes:
+#            if len(node.parents) == 0:
+#                return node
+#        return nodes[0]
     def get_layer_count( self ):
         return len( self.layers )
     def get_layer( self, index ):
@@ -132,7 +132,14 @@ class GraphBFS:
         return result
 
 def extract_edge_tuples_from_graph( flowgraph ):
-    gBfs = GraphBFS( flowgraph )
+	while True:
+        gBfs = GraphBFS( flowgraph )
+        
+        if gBfs.size() == len(flowgraph.nodes):
+            break
+            
+        
+    
     node_to_layer_index = gBfs.get_node_to_layer_index()
     result_tuples = []
     for edge in flowgraph.edges:

@@ -3,7 +3,7 @@ import sys
 import os
 from bincloud_client_common import *
 import xmlrpclib #import dumps, loads, ServerProxy
-DEBUG = False
+DEBUG = True
 
 """
 BINCLOUD PARAMETERS
@@ -174,7 +174,7 @@ def read_config_file():
         config_file = open(configuration_file, "r")
         lines = config_file.readlines()
         config_file.close()
-    
+        
         if len(lines) < 2:
             return (None, None)
     
@@ -187,12 +187,12 @@ def bincloud_upload():
 
     user, password = read_config_file()
 
-    if name == None:
+    if user == None:
     	print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
     	return
-    
+
     # Gather details from idb
-    p = proxyGraph( here())
+    p = proxyGraph( here() )
     e = extract_edge_tuples_from_graph( p )
     edges = edges_array_to_dict(e)
     prime = calculate_prime_product_from_graph(here())
@@ -305,7 +305,7 @@ def bincloud_download():
     print "requesting information for function at 0x%X"%here()
     user, password = read_config_file()
     
-    if name == None:
+    if user == None:
     	print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
     	return
 
