@@ -99,6 +99,7 @@ class GraphBFS:
     A generic class to perform a BFS traversal of a given graph
     """
     def __init__( self, flowgraph ):
+    	self.flowgraph = flowgraph
         self.root = self.find_root( flowgraph.nodes )
         self.layers = []
         self.layers.append( [ self.root ] )
@@ -125,6 +126,17 @@ class GraphBFS:
         return self.layers[ index ]
     def get_node_to_layer_index( self ):
         result = {}
+        
+        # There is a problem with functions that have "weird"
+        # shapes (multiple entry nodes, ...). The function for
+        # extracting tuples expects all node layers to be
+        # initialized but the breadth-first search does not hit
+        # all nodes in weird graphs. That's why we do a default
+        # value initialization which is later kept for all nodes
+        # that are not hit by the breadth-first search.
+        for node in self.flowgraph.nodes:
+            result [ node ] = 0x31337
+        
         for i in range( self.get_layer_count()):
             layer = self.get_layer( i )
             for node in layer:
