@@ -1,20 +1,24 @@
 import sets
+import hashlib
+import time
 import sys
 import os
-from bincloud_client_common import *
+from bincrowd_client_common import *
 import xmlrpclib #import dumps, loads, ServerProxy
 DEBUG = True
-
+SHOWSKIPPED = True
 """
-BINCLOUD PARAMETERS
+BINCROWD PARAMETERS
 """
 RPCURI = "http://localhost:8000/RPC2/"
 #RPCURI = "http://bincrowd.zynamics.com/bincrowd/RPC2/"
+CLIENTVERSION = "0.1"
+#CLIENTNAME = "Bincrowd IDA"
 UPLOADHOTKEY = "Ctrl-1"
 DOWNLOADHOTKEY = "Ctrl-2"
-# Test string added to some of optional parameters 
-#TESTSTR = "6"
-
+UPLOADSEGHOTKEY = "Ctrl-3"
+UPLOADDELAY = 0.1 #passed to time.sleep()
+INVALID_FUNCTION_PREFIX = ('sub_', 'unknown_', 'nullsub_', 'unknown_libname_', 'libname_', 'SEH_', 'j__')
 
 class proxyGraphNode:
     """
@@ -119,7 +123,6 @@ def get_list_of_mnemonics (address):
     mnemonics.append( idc.GetMnem( fniter.current() ) )
     while fniter.next_code():
         mnemonics.append( idc.GetMnem( fniter.current() ) )
-    #print mnemonics
     return mnemonics
     
 def calculate_prime_product_from_graph (address):
@@ -131,41 +134,32 @@ def calculate_prime_product_from_graph (address):
 
 
 """
-BINCLOUD RPC FUNCTIONS
+BINCROWD RPC FUNCTIONS
 """
 
 def edges_array_to_dict(e):
     edges = []
     for tup in e:
-        """ REFERENCE:
-        for edge in flowgraph.edges:
-            e.append(  ( len(edge.source.parents), \
-                len(edge.source.children), \
-                len(edge.target.parents), \
-                len(edge.target.children), \
-                node_to_layer_index[ edge.source ], \
-                node_to_layer_index[ edge.target ] ) )
-        """
         edges.append(
                {'indegreeSource'          : tup[0],
                 'outdegreeSource'         : tup[1],
                 'indegreeTarget'          : tup[2],
                 'outdegreeTarget'         : tup[3],
                 'topologicalOrderSource'  : tup[4],
-                'topologicalOrderTarget'  : tup[5],
+                'topologicalOrderTarget'  : tup[5]} )
                 # Optional:
-                'sourcePrime'             : 0,
-                'sourceCallNum'           : 0,
-                'targetPrime'             : 0,
-                'targetCallNum'           : 0  } )
+                #'sourcePrime'             : 0,
+                #'sourceCallNum'           : 0,
+                #'targetPrime'             : 0,
+                #'targetCallNum'           : 0})
     return edges
-    
+
 def read_config_file():
     print "Reading configuration file"
     
     directory = os.path.dirname(sys.argv[0])
     configuration_file = directory + "/bincrowd.cfg"
-
+    
     if DEBUG:
         print "Determined script directory: %s" % directory
         print "Determined configuration file : %s" % configuration_file
@@ -177,177 +171,199 @@ def read_config_file():
         
         if len(lines) < 2:
             return (None, None)
-    
+        
         return (lines[0].rstrip("\r\n"), lines[1].rstrip("\r\n"))
     except:
         return (None, None)
     
-def bincloud_upload():
+def bincrowd_upload (ea=None):
     print "Submitting function at 0x%X"%here()
 
     user, password = read_config_file()
-
+    
     if user == None:
     	print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
     	return
 
-    # Gather details from idb
-    p = proxyGraph( here() )
-    e = extract_edge_tuples_from_graph( p )
-    edges = edges_array_to_dict(e)
-    prime = calculate_prime_product_from_graph(here())
-    fn = idaapi.get_func(here())
+    if not ea:
+        ea = here()
+    fn = idaapi.get_func(ea)
+    inf = idaapi.get_inf_structure()
+
     name = Demangle(idc.GetFunctionName(fn.startEA), idc.GetLongPrm(INF_SHORT_DN))
     if not name:
         name = idc.GetFunctionName(fn.startEA)
-    description = idaapi.get_func_cmt(fn, True) #repatable comment
-    if not description: description = idaapi.get_func_cmt(fn, False) #non-repeatable
-    if not description: description = ''
-    inf = idaapi.get_inf_structure()
+    print name
+    if name.startswith(INVALID_FUNCTION_PREFIX):
+        if SHOWSKIPPED:
+            print "%-40s (0x%X %s)"%("! skipped",fn.startEA, name)
+        return None
+    
 
-    # Handle optional parameters. FIX LATER
+    try:
+        p = proxyGraph( fn.startEA )
+        e = extract_edge_tuples_from_graph( p )
+    except:
+        print "%-40s (0x%X %s)"%("! local error in edge list",fn.startEA, name)
+        return
+    if not e:
+        print "%-40s (0x%X %s)"%("! too small", fn.startEA, name)
+        return
+
+    edges = edges_array_to_dict(e)
+    prime = calculate_prime_product_from_graph(fn.startEA)
+    
+    description = idaapi.get_func_cmt(fn, True) \
+                or idaapi.get_func_cmt(fn, False) #repeatable/non-repeatable
+
+    md5 = idc.GetInputMD5().lower()
+    sha1 = None
+    sha256 = None
+    filepath = idc.GetInputFilePath()
+    if os.path.exists(filepath) and os.path.isfile(filepath):
+        f = file(filepath, 'rb')
+        data = f.read()
+        f.close()
+        sha1 = hashlib.sha1(data).hexdigest().lower()
+        sha256 = hashlib.sha256(data).hexdigest().lower()    
+
+    null_idx = inf.procName.find(chr(0))
+    if null_idx > 0:
+        processor = inf.procName[:null_idx]
+    else:
+        processor = inf.procName
+
+    # Handle optional parameters.
     functionInformation = {
                 'baseAddress'             : idaapi.get_imagebase(),
                 'RVA'                     : fn.startEA - idaapi.get_imagebase(),     
-                'processor'               : '',# I dont know why but this crashes: inf.procName,
-                'operatingSystem'         : 'ida index %d'%inf.ostype, # libfuncs.hpp has index
+                'processor'               : processor,
+                'operatingSystem'         : '%d (index defined in libfuncs.hpp?)'%inf.ostype,
                 'operatingSystemVersion'  : '',
                 'language'                : idaapi.get_compiler_name(inf.cc.id),
                 'numberOfArguments'       : None,#int  
                 'frameSize'               : fn.frsize,
                 'frameNumberOfVariables'  : None,#int  
-                'idaSignature'            : '' #str
-        }
-    #idaapi.get_file_type_name()
-    # "Portable executable for 80386 (PE)"
+                'idaSignature'            : ''
+                }
 
 
     fileInformation = {
-                'hashMD5'                 : idc.GetInputMD5(),
-                'hashSHA1'                : '',#str 
-                'hashSHA256'              : '',#str 
+                'hashMD5'                 : md5,
+                'hashSHA1'                : sha1, 
+                'hashSHA256'              : sha256, 
                 'name'                    : idc.GetInputFile(),
-                'description'             : '' #str NOTEPAD netblob? 
-        }
+                'description'             : '' #str NOTEPAD netblob?
+                }
+    #idaapi.get_file_type_name() #"Portable executable for 80386 (PE)"
 
     parameters = {
-                 'username':user, 'password':password, 'version':'0.1',
+                 'username':user, 'password':password, 'version':CLIENTVERSION,
                  'name':name, 'description':description,                                
                  'primeProduct':'%d'%prime, 'edges':edges, 
                  'functionInformation':functionInformation,                                 
                  'fileInformation':fileInformation                                             
                  }
-    if DEBUG:
-        print "file", fileInformation
-        print "func", functionInformation
-        print "uploading function info to server"
-        print "prime:", prime
-        print "edges:", e
-        print "parameters: ", parameters
+    
+    time.sleep(UPLOADDELAY)        
     rpc_srv = xmlrpclib.ServerProxy(RPCURI,allow_none=True)
     response = rpc_srv.upload(parameters)
-    print "response:", response
+    print "%-40s (0x%X %s)"%(response, fn.startEA, name)
+    #import pprint
+    #print pprint.PrettyPrinter().pformat(dir(rpc_srv))
+    #print pprint.PrettyPrinter().pformat(dir(rpc_srv._ServerProxy__request))
+    #print pprint.PrettyPrinter().pformat(dir(rpc_srv._ServerProxy__handler))
 
-def test(self, n):
-    print n
-    return 1
+def bincrowd_upload_seg():
+    ea = idc.ScreenEA()
+    for function_ea in Functions(idc.SegStart(ea), idc.SegEnd(ea)):
+        name = idc.GetFunctionName(function_ea)
+        bincrowd_upload(function_ea)
+    print "done"
+
 
 class MyChoose(Choose):
-    def __init__(self, list=[], name="MyChooser", flags=1):          
+    def __init__(self, list=[], name="Choose", flags=1):          
         Choose.__init__(self, list, name, flags)
         self.width = 80
         self.columntitle = name
-        # bincrowd specific:
         self.fn = None
         self.params = None
-        """ From idaapi.py
-        add_chooser_command(char chooser_caption, char cmd_caption, chooser_cb_t chooser_cb, 
-        int menu_index=-1, int icon=-1, 
-        int flags=0) -> bool
-        """
-        #print idaapi.add_chooser_command("test", "test", self)
-                                
     def getl(self, n):
-        """ wrap idaapi.Choose.getl() function to use a global column title """
+        """ wrap idaapi.Choose.getl() function, set column title """
         if n == 0:
            return self.columntitle
         if n <= self.sizer():
                 return str(self.list[n-1])
         else:
-                return "<Empty>"
-            
+                return "<Empty>"            
     def enter(self,n):
         if n > 0:
             name        = self.params[n-1]['name']
             description = self.params[n-1]['description']
-            print "changing 0x%X name to: %s"%(self.fn.startEA, name)
+            print "Changing 0x%X name to: %s"%(self.fn.startEA, name)
             idc.MakeName(self.fn.startEA, name)
             if description:
-                print "changing comment to:\n%s"%description
+                print "Changing comment to:\n%s"%description
                 idaapi.set_func_cmt(self.fn, description, True)
-
-    def formatresults(self,results):
-        """ build formatted strings of results and store in self.list """
-        strlist = []
-        for r in results:
-            name            = r['name']         if len(r['name'])       <=26  else r['name'][:23]+'...'
-            description     = r['description']  if len(r['name'])       <=100 else r['name'][:97]+'...'
-            owner           = r['owner']
-            degree        = r['matchDegree']
-            strlist.append("%-2d %-26s  %s  (%s)"% (degree, name,description, owner,))
-        self.list = strlist
-        
-    # useless because kernwin.i of idapython sets to NULL
+    # kernwin.i of idapython sets these to NULL :/
     #def destroy(self,n):
     #def get_icon(self,n):
 
- 
-def bincloud_download():
-    print "requesting information for function at 0x%X"%here()
-    user, password = read_config_file()
-    
-    if user == None:
-    	print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
-    	return
 
-    # Gather details from idb
-    p = proxyGraph( here())
-    e = extract_edge_tuples_from_graph( p )
-    edges = edges_array_to_dict(e)
-    prime = calculate_prime_product_from_graph(here())
+def formatresults(results):
+    """ build formatted strings of results and store in self.list """
+    strlist = []
+    for r in results:
+        name            = r['name']         if len(r['name'])       <=26  else r['name'][:23]+'...'
+        description     = r['description']  if len(r['description'])<=100 else r['description'][:97]+'...'
+        owner           = r['owner']
+        degree        = r['matchDegree']
+        strlist.append("%-2d %-26s  %s  (%s)"% (degree, name, description, owner))
+    return strlist
+        
+
+ 
+def bincrowd_download():
     fn = idaapi.get_func(here())
     inf = idaapi.get_inf_structure()
 
-    if DEBUG:
-        print "prime:", prime
-        print "edges:", e
+    print "Requesting information for function at 0x%X"%fn.startEA
+
+    user, password = read_config_file()
+
+    if user == None:
+    	print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
+    	return
+    	
+    p = proxyGraph(fn.startEA)
+    e = extract_edge_tuples_from_graph(p)
+    edges = edges_array_to_dict(e)
+    prime = calculate_prime_product_from_graph(fn.startEA)
+
     parameters = {
-                 'username':user, 'password':password, 'version':'0.1',
+                 'username':user, 'password':password, 'version':CLIENTVERSION,
                  'primeProduct':'%d'%prime,'edges':edges, 
                  }
+    
     rpc_srv = xmlrpclib.ServerProxy(RPCURI,allow_none=True)
     response = rpc_srv.download(parameters)
     try:
         (params, methodname) = xmlrpclib.loads(response)
-        if DEBUG:
-            print "response methodname:", methodname
-            print "response data:"
-            print params
     except:
-        print "response:", response
+        print response
         return
 
 
-    # Display results and modify based on selection
+    # Display results and modify based on user selection
     # would be better to use choose2() from idapython src repo
-    # flag = 1 = popup. 0 = popup window
-    chooser = MyChoose([], "Function matches", 1 | idaapi.CHOOSER_MULTI_SELECTION)
+    # flag = 1 = popup window. 0 = local window
+    chooser = MyChoose([], "Bincrowd matched functions", 1 | idaapi.CHOOSER_MULTI_SELECTION)
     chooser.columntitle = "name - description (owner, match deg.)"
     chooser.fn = fn
     chooser.params = params
-    chooser.formatresults(params)    
+    chooser.list = formatresults(params)    
     ch = chooser.choose()
-    print ch
     chooser.enter(ch)
 
 
@@ -357,10 +373,14 @@ def bincloud_download():
 REGISTER IDA SHORTCUTS
 """
     
-print "registering hotkey %s for bincloud_upload()"%UPLOADHOTKEY
-idaapi.CompileLine('static _bincloud_upload() { RunPythonStatement("bincloud_upload()"); }')
-idc.AddHotkey(UPLOADHOTKEY,"_bincloud_upload")
+print "Registering hotkey %s for bincrowd_upload()"%UPLOADHOTKEY
+idaapi.CompileLine('static _bincrowd_upload() { RunPythonStatement("bincrowd_upload()"); }')
+idc.AddHotkey(UPLOADHOTKEY,"_bincrowd_upload")
 
-print "registering hotkey %s for bincloud_download()"%DOWNLOADHOTKEY
-idaapi.CompileLine('static _bincloud_download() { RunPythonStatement("bincloud_download()"); }')
-idc.AddHotkey(DOWNLOADHOTKEY,"_bincloud_download")
+print "Registering hotkey %s for bincrowd_download()"%DOWNLOADHOTKEY
+idaapi.CompileLine('static _bincrowd_download() { RunPythonStatement("bincrowd_download()"); }')
+idc.AddHotkey(DOWNLOADHOTKEY,"_bincrowd_download")
+
+print "Registering hotkey %s for bincrowd_upload_seg()"%UPLOADSEGHOTKEY
+idaapi.CompileLine('static _bincrowd_upload_seg() { RunPythonStatement("bincrowd_upload_seg()"); }')
+idc.AddHotkey(UPLOADSEGHOTKEY,"_bincrowd_upload_seg")
