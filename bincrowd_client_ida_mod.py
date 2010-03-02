@@ -179,8 +179,6 @@ def read_config_file():
         return (None, None)
     
 def bincrowd_upload (ea=None):
-    print "Submitting function at 0x%X"%here()
-
     user, password = read_config_file()
     
     if user == None:
@@ -195,7 +193,16 @@ def bincrowd_upload (ea=None):
     name = Demangle(idc.GetFunctionName(fn.startEA), idc.GetLongPrm(INF_SHORT_DN))
     if not name:
         name = idc.GetFunctionName(fn.startEA)
+        
+    # The Demangle function returns stuff like FooFunction(x,x,x,x) in IDA 5.6.
+    # If you upload such a function name and download it again you get an error
+    # because names with parentheses are invalid.
+    first_parens = name.find("(")
+    if first_parens != -1:
+    	name = name[0:first_parens]
 
+    print "0x%X: Submitting function %s" % (ea, name)
+    
     if idaapi.has_dummy_name(idaapi.getFlags(fn.startEA)):
         if SHOWSKIPPED:
             print "0x%X: '%s' was not uploaded because it has an auto-generated name." % (fn.startEA, name)
