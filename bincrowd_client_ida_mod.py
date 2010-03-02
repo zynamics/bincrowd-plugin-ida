@@ -4,6 +4,7 @@ import time
 import sys
 import os
 from bincrowd_client_common import *
+from datetime import datetime
 import xmlrpclib #import dumps, loads, ServerProxy
 DEBUG = True
 SHOWSKIPPED = True
@@ -155,7 +156,8 @@ def edges_array_to_dict(e):
     return edges
 
 def read_config_file():
-    print "Reading configuration file"
+    if DEBUG:
+        print "Reading configuration file"
     
     directory = os.path.dirname(sys.argv[0])
     configuration_file = directory + "/bincrowd.cfg"
@@ -264,8 +266,8 @@ def bincrowd_upload (ea=None):
                  'functionInformation':functionInformation,                                 
                  'fileInformation':fileInformation                                             
                  }
-    
-    time.sleep(UPLOADDELAY)        
+                 
+#    time.sleep(UPLOADDELAY)        
     rpc_srv = xmlrpclib.ServerProxy(RPCURI,allow_none=True)
     response = rpc_srv.upload(parameters)
     print "%-40s (0x%X %s)"%(response, fn.startEA, name)
@@ -278,6 +280,8 @@ def bincrowd_upload_seg():
     ea = idc.ScreenEA()
     for function_ea in Functions(idc.SegStart(ea), idc.SegEnd(ea)):
         name = idc.GetFunctionName(function_ea)
+        if DEBUG:
+        	print "Uploading %s at " % name, datetime.now()
         bincrowd_upload(function_ea)
     print "done"
 
@@ -353,7 +357,10 @@ def bincrowd_download():
     except:
         print response
         return
-
+    
+    if len(params) == 0:
+        print "No information for function '%s' available" % idc.GetFunctionName(fn.startEA)
+        return
 
     # Display results and modify based on user selection
     # would be better to use choose2() from idapython src repo
