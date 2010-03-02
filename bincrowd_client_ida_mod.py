@@ -6,7 +6,7 @@ import os
 from bincrowd_client_common import *
 from datetime import datetime
 import xmlrpclib #import dumps, loads, ServerProxy
-DEBUG = True
+DEBUG = False
 SHOWSKIPPED = True
 """
 BINCROWD PARAMETERS
@@ -19,7 +19,6 @@ UPLOADHOTKEY = "Ctrl-1"
 DOWNLOADHOTKEY = "Ctrl-2"
 UPLOADSEGHOTKEY = "Ctrl-3"
 UPLOADDELAY = 0.1 #passed to time.sleep()
-INVALID_FUNCTION_PREFIX = ('sub_', 'unknown_', 'nullsub_', 'unknown_libname_', 'libname_', 'SEH_', 'j__')
 
 class proxyGraphNode:
     """
@@ -195,21 +194,20 @@ def bincrowd_upload (ea=None):
     name = Demangle(idc.GetFunctionName(fn.startEA), idc.GetLongPrm(INF_SHORT_DN))
     if not name:
         name = idc.GetFunctionName(fn.startEA)
-    print name
-    if name.startswith(INVALID_FUNCTION_PREFIX):
+
+    if idaapi.has_dummy_name(idaapi.getFlags(fn.startEA)):
         if SHOWSKIPPED:
-            print "%-40s (0x%X %s)"%("! skipped",fn.startEA, name)
+            print "0x%X: '%s' was not uploaded because it has an auto-generated name." % (fn.startEA, name)
         return None
-    
 
     try:
         p = proxyGraph( fn.startEA )
         e = extract_edge_tuples_from_graph( p )
     except:
-        print "%-40s (0x%X %s)"%("! local error in edge list",fn.startEA, name)
+        print "0x%X: '%s' was not uploaded because there was a local error in the edge list." % (fn.startEA, name)
         return
     if not e:
-        print "%-40s (0x%X %s)"%("! too small", fn.startEA, name)
+        print "0x%X: '%s' was not uploaded because it is too small." % (fn.startEA, name)
         return
 
     edges = edges_array_to_dict(e)
@@ -270,7 +268,7 @@ def bincrowd_upload (ea=None):
 #    time.sleep(UPLOADDELAY)        
     rpc_srv = xmlrpclib.ServerProxy(RPCURI,allow_none=True)
     response = rpc_srv.upload(parameters)
-    print "%-40s (0x%X %s)"%(response, fn.startEA, name)
+    print "0x%X: '%s' %s." % (fn.startEA, name, response)
     #import pprint
     #print pprint.PrettyPrinter().pformat(dir(rpc_srv))
     #print pprint.PrettyPrinter().pformat(dir(rpc_srv._ServerProxy__request))
