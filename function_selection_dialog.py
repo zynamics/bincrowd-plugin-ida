@@ -3,7 +3,7 @@ from idaapi import Choose2
 
 class FunctionSelectionDialog(Choose2):
     def __init__(self, title, items):
-        Choose2.__init__(self, title, [ ["Match Quality", 10], ["Name", 10], ["Description", 30], ["Author", 20] ], Choose2.CH_MODAL)
+        Choose2.__init__(self, title, [ ["Match Quality", 10], ["Name", 20], ["Description", 30], ["Author", 20] ], Choose2.CH_MODAL)
         self.n = 0
         self.items = items
         self.icon = -1
