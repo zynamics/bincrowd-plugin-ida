@@ -7,7 +7,7 @@ from bincrowd_client_common import *
 from function_selection_dialog import *
 from datetime import datetime
 import xmlrpclib #import dumps, loads, ServerProxy
-DEBUG = False
+DEBUG = True
 SHOWSKIPPED = True
 """
 BINCROWD PARAMETERS
@@ -19,6 +19,7 @@ CLIENTVERSION = "0.1"
 UPLOADHOTKEY = "Ctrl-1"
 DOWNLOADHOTKEY = "Ctrl-2"
 UPLOADSEGHOTKEY = "Ctrl-3"
+DOWNLOADSEGHOTKEY = "Ctrl-4"
 UPLOADDELAY = 0.1 #passed to time.sleep()
 
 class proxyGraphNode:
@@ -196,6 +197,7 @@ def bincrowd_upload (ea=None):
 
     if not ea:
         ea = here()
+
     fn = idaapi.get_func(ea)
     inf = idaapi.get_inf_structure()
 
@@ -334,27 +336,34 @@ def formatresults(results):
     """ build formatted strings of results and store in self.list """
     strlist = []
     for r in results:
+        degree          = r['matchDegree']
+        file            = r['file']         if len(r['file'])       <=26  else r['file'][:23]+'...'
         name            = r['name']         if len(r['name'])       <=26  else r['name'][:23]+'...'
         description     = r['description']  if len(r['description'])<=100 else r['description'][:97]+'...'
         owner           = r['owner']
-        degree        = r['matchDegree']
-        strlist.append([MATCHDEGREE_STRINGS[degree], name, description, owner])
+        strlist.append([MATCHDEGREE_STRINGS[degree], file, name, description, owner])
     return strlist
         
+class DownloadReturn:
+    SUCCESS = 0
+    COULDNT_READ_CONFIG_FILE = 1
+    COULDNT_RETRIEVE_DATA = 2
+    
+def download_without_application(ea = None):
+    user, password = read_config_file()
+    
+    if user == None:
+    	print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
+    	return (DownloadReturn.COULDNT_READ_CONFIG_FILE, None)
 
- 
-def bincrowd_download():
-    fn = idaapi.get_func(here())
+    if not ea:
+        ea = here()
+
+    fn = idaapi.get_func(ea)
     inf = idaapi.get_inf_structure()
 
     print "Requesting information for function at 0x%X"%fn.startEA
 
-    user, password = read_config_file()
-
-    if user == None:
-    	print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
-    	return
-    	
     p = proxyGraph(fn.startEA)
     e = extract_edge_tuples_from_graph(p)
     edges = edges_array_to_dict(e)
@@ -371,26 +380,146 @@ def bincrowd_download():
         (params, methodname) = xmlrpclib.loads(response)
     except:
         print response
-        return
+        return (DownloadReturn.COULDNT_RETRIEVE_DATA, None)
+    
+    return (DownloadReturn.SUCCESS, params)
+ 
+def bincrowd_download(ea = None):
+    if not ea:
+        ea = here()
+
+    fn = idaapi.get_func(ea)
+    
+    (error_code, params) = download_without_application(ea)
+
+    if error_code != DownloadReturn.SUCCESS:
+    	return
     
     if len(params) == 0:
         print "No information for function '%s' available" % idc.GetFunctionName(fn.startEA)
         return
 
-    # Display results and modify based on user selection
-    # would be better to use choose2() from idapython src repo
     c = FunctionSelectionDialog("Retrieved Function Information", formatresults(params))
     selected_row = c.Show(True)
-    
+    print selected_row
     if selected_row >= 0:
         name        = params[selected_row]['name']
         description = params[selected_row]['description']
         idc.MakeName(fn.startEA, name)
         if description:
-            print "Changing comment to:\n%s" % description
             idaapi.set_func_cmt(fn, description, True)
 
 
+def get_information_all_functions(file, result):
+    """
+    Takes the results of a segment download request and returns only
+    those pieces of information that come from the given source file.
+    
+    The result is a list that contains the ea of the target functions
+    as well as the number of pieces of information available for the
+    target functions.
+    
+    This is useful to list all functions of the currently active IDB
+    file for which there is information available.
+    """
+    
+    result_list = []
+    
+    for ea, (error_code, params) in result.items():
+        if error_code == DownloadReturn.SUCCESS:
+            info_pieces = [f for f in params if f['file'] == file]
+            if len(info_pieces) > 0:
+                result_list.append([ea, len(info_pieces)])
+    
+    return sorted(result_list, lambda x, y : y[1] - x[1])
+    
+def get_display_information_all_functions(information):
+    """
+    Converts information returned from get_information_all_functions and
+    turns that information into something that can be displayed in a
+    chooser2 dialog.
+    """
+    
+    return [[idc.GetFunctionName(ea), "%d" % count] for [ea, count] in information]
+    
+def get_single_file_information(result, selected_ea, file):
+    """
+    Filters whole download results down to those for a given ea and
+    a given source file.
+    """
+    return [r for r in result[selected_ea][1] if r['file'] == file]
+
+def bincrowd_download_seg():
+    """
+    Downloads information for all functions of the given segment and lets
+    the user choose what information he wants to accept.
+    """
+    
+    result = { }     # ea => (error_code, information)
+    file_count = { } # file => [ number of functions with information ]
+    
+    ea = idc.ScreenEA()
+    functions = Functions(idc.SegStart(ea), idc.SegEnd(ea))
+    
+    for function_ea in functions:
+        name = idc.GetFunctionName(function_ea)
+        if DEBUG:
+            print "Downloading %s at " % name, datetime.now()
+        
+        (error_code, params) = download_without_application(function_ea)
+        result[function_ea] = (error_code, params)
+        
+        if error_code == DownloadReturn.SUCCESS:
+            for i in xrange(len(params)):
+                file = params[i]['file']
+            
+                if not file_count.has_key(file):
+                    file_count[file] = 0
+                
+                file_count[file] = file_count[file] + 1
+        else:
+            pass # Do some error handling in the future
+    
+    # Create a list of [file name, number of pieces of information for that file]
+    file_count_list = [[key, "%d" % file_count[key]] for key in sorted(file_count, key=file_count.get, reverse=True)]
+    print file_count
+    while True:
+        # Let the user pick from what module he wants to copy information
+        module_dialog = ModuleSelectionDialog("Retrieved Function Information", file_count_list)
+        selected_module = module_dialog.Show(True)
+        
+        if selected_module == -1:
+            break
+        
+        while True:
+            # Let the user pick for what target function he wants to copy information
+            file = file_count_list[selected_module][0]
+            all_functions_information = get_information_all_functions(file, result)
+            all_functions_dialog = AllFunctionsSelectionDialog("All Functions", get_display_information_all_functions(all_functions_information))
+            selected_function = all_functions_dialog.Show(True)
+        
+            if selected_function == -1:
+                break
+
+            # Let the user pick for what downloaded information he wants to use for his target function
+            selected_ea = all_functions_information[selected_function][0]
+            
+            idc.Jump(selected_ea)
+            
+            function_information = get_single_file_information(result, selected_ea, file)
+            function_selection_dialog = FunctionSelectionDialog("Retrieved Function Information", formatresults(function_information))
+            selected_row = function_selection_dialog.Show(True)
+             
+            if selected_row != -1:
+                name = function_information[selected_row]['name']
+                description = function_information[selected_row]['description']
+                
+                fn = idaapi.get_func(selected_ea)
+                idc.MakeName(fn.startEA, name)
+                if description:
+                    idaapi.set_func_cmt(fn, description, True)
+    
+            
 """
 REGISTER IDA SHORTCUTS
 """
@@ -406,3 +535,7 @@ idc.AddHotkey(DOWNLOADHOTKEY,"_bincrowd_download")
 print "Registering hotkey %s for bincrowd_upload_seg()"%UPLOADSEGHOTKEY
 idaapi.CompileLine('static _bincrowd_upload_seg() { RunPythonStatement("bincrowd_upload_seg()"); }')
 idc.AddHotkey(UPLOADSEGHOTKEY,"_bincrowd_upload_seg")
+
+print "Registering hotkey %s for _bincrowd_download_seg()"%DOWNLOADSEGHOTKEY
+idaapi.CompileLine('static _bincrowd_download_seg() { RunPythonStatement("bincrowd_download_seg()"); }')
+idc.AddHotkey(DOWNLOADSEGHOTKEY,"_bincrowd_download_seg")
