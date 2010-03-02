@@ -316,7 +316,6 @@ def bincrowd_upload_seg():
             return
         
         upload_stats[ret_val] += 1
-        break
 
     total_functions = sum(upload_stats)
     success_count = upload_stats[UploadReturn.UPLOAD_SUCCESS_ADDED] + upload_stats[UploadReturn.UPLOAD_SUCCESS_CHANGED]
