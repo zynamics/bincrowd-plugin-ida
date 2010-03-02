@@ -328,6 +328,7 @@ def bincrowd_upload_seg():
     print "  Skipped (too small): %d (%.02f%%)" % (upload_stats[UploadReturn.SKIPPED_TOO_SMALL], 100.0 * upload_stats[UploadReturn.SKIPPED_TOO_SMALL] / total_functions)
     print "  Unknown server reply: %d (%.02f%%)" % (upload_stats[UploadReturn.UNKNOWN_SERVER_REPLY], 100.0 * upload_stats[UploadReturn.UNKNOWN_SERVER_REPLY] / total_functions)
 
+MATCHDEGREE_STRINGS = [ "", "High", "Medium", "Low" ]
 
 def formatresults(results):
     """ build formatted strings of results and store in self.list """
@@ -337,7 +338,7 @@ def formatresults(results):
         description     = r['description']  if len(r['description'])<=100 else r['description'][:97]+'...'
         owner           = r['owner']
         degree        = r['matchDegree']
-        strlist.append(["%2d" % degree, name, description, owner])
+        strlist.append([MATCHDEGREE_STRINGS[degree], name, description, owner])
     return strlist
         
 

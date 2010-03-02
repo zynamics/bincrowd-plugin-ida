@@ -38,7 +38,3 @@ class FunctionSelectionDialog(Choose2):
 
     def OnCommand(self, n, cmd_id):
         pass
-
-    def OnGetLineAttr(self, n):
-        if n == 1:
-            return [0xFF0000, 0]
