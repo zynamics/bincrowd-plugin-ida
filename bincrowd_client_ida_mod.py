@@ -4,6 +4,7 @@ import time
 import sys
 import os
 from bincrowd_client_common import *
+from function_selection_dialog import *
 from datetime import datetime
 import xmlrpclib #import dumps, loads, ServerProxy
 DEBUG = False
@@ -284,35 +285,6 @@ def bincrowd_upload_seg():
     print "done"
 
 
-class MyChoose(Choose):
-    def __init__(self, list=[], name="Choose", flags=1):          
-        Choose.__init__(self, list, name, flags)
-        self.width = 80
-        self.columntitle = name
-        self.fn = None
-        self.params = None
-    def getl(self, n):
-        """ wrap idaapi.Choose.getl() function, set column title """
-        if n == 0:
-           return self.columntitle
-        if n <= self.sizer():
-                return str(self.list[n-1])
-        else:
-                return "<Empty>"            
-    def enter(self,n):
-        if n > 0:
-            name        = self.params[n-1]['name']
-            description = self.params[n-1]['description']
-            print "Changing 0x%X name to: %s"%(self.fn.startEA, name)
-            idc.MakeName(self.fn.startEA, name)
-            if description:
-                print "Changing comment to:\n%s"%description
-                idaapi.set_func_cmt(self.fn, description, True)
-    # kernwin.i of idapython sets these to NULL :/
-    #def destroy(self,n):
-    #def get_icon(self,n):
-
-
 def formatresults(results):
     """ build formatted strings of results and store in self.list """
     strlist = []
@@ -321,7 +293,7 @@ def formatresults(results):
         description     = r['description']  if len(r['description'])<=100 else r['description'][:97]+'...'
         owner           = r['owner']
         degree        = r['matchDegree']
-        strlist.append("%-2d %-26s  %s  (%s)"% (degree, name, description, owner))
+        strlist.append(["%2d" % degree, name, description, owner])
     return strlist
         
 
@@ -362,16 +334,16 @@ def bincrowd_download():
 
     # Display results and modify based on user selection
     # would be better to use choose2() from idapython src repo
-    # flag = 1 = popup window. 0 = local window
-    chooser = MyChoose([], "Bincrowd matched functions", 1 | idaapi.CHOOSER_MULTI_SELECTION)
-    chooser.columntitle = "name - description (owner, match deg.)"
-    chooser.fn = fn
-    chooser.params = params
-    chooser.list = formatresults(params)    
-    ch = chooser.choose()
-    chooser.enter(ch)
-
-
+    c = FunctionSelectionDialog("Retrieved Function Information", formatresults(params))
+    selected_row = c.Show(True)
+    
+    if selected_row >= 0:
+        name        = params[selected_row]['name']
+        description = params[selected_row]['description']
+        idc.MakeName(fn.startEA, name)
+        if description:
+            print "Changing comment to:\n%s" % description
+            idaapi.set_func_cmt(fn, description, True)
 
 
 """
