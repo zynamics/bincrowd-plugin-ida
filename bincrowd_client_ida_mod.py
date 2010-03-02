@@ -178,12 +178,21 @@ def read_config_file():
     except:
         return (None, None)
     
+class UploadReturn:
+    UPLOAD_SUCCESS_ADDED = 0
+    UPLOAD_SUCCESS_CHANGED = 1
+    COULDNT_READ_CONFIG_FILE = 2
+    SKIPPED_AUTO_GENERATED = 3
+    SKIPPED_INTERNAL_ERROR = 4
+    SKIPPED_TOO_SMALL = 5
+    UNKNOWN_SERVER_REPLY = 6
+        
 def bincrowd_upload (ea=None):
     user, password = read_config_file()
     
     if user == None:
     	print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
-    	return
+    	return UploadReturn.COULDNT_READ_CONFIG_FILE
 
     if not ea:
         ea = here()
@@ -206,17 +215,17 @@ def bincrowd_upload (ea=None):
     if idaapi.has_dummy_name(idaapi.getFlags(fn.startEA)):
         if SHOWSKIPPED:
             print "0x%X: '%s' was not uploaded because it has an auto-generated name." % (fn.startEA, name)
-        return None
+        return UploadReturn.SKIPPED_AUTO_GENERATED
 
     try:
         p = proxyGraph( fn.startEA )
         e = extract_edge_tuples_from_graph( p )
     except:
         print "0x%X: '%s' was not uploaded because there was a local error in the edge list." % (fn.startEA, name)
-        return
+        return UploadReturn.SKIPPED_AUTO_GENERATED
     if not e:
         print "0x%X: '%s' was not uploaded because it is too small." % (fn.startEA, name)
-        return
+        return UploadReturn.SKIPPED_TOO_SMALL
 
     edges = edges_array_to_dict(e)
     prime = calculate_prime_product_from_graph(fn.startEA)
@@ -277,19 +286,48 @@ def bincrowd_upload (ea=None):
     rpc_srv = xmlrpclib.ServerProxy(RPCURI,allow_none=True)
     response = rpc_srv.upload(parameters)
     print "0x%X: '%s' %s." % (fn.startEA, name, response)
+    
+    if response == "Added new function":
+        return UploadReturn.UPLOAD_SUCCESS_ADDED
+    elif response == "Changed existing function":
+        return UploadReturn.UPLOAD_SUCCESS_CHANGED
+    else:
+        print "Error: Unknown server reply ", response
+        return UploadReturn.UNKNOWN_SERVER_REPLY
+    
     #import pprint
     #print pprint.PrettyPrinter().pformat(dir(rpc_srv))
     #print pprint.PrettyPrinter().pformat(dir(rpc_srv._ServerProxy__request))
     #print pprint.PrettyPrinter().pformat(dir(rpc_srv._ServerProxy__handler))
 
 def bincrowd_upload_seg():
+    upload_stats = [0, 0, 0, 0, 0, 0, 0]
+    
     ea = idc.ScreenEA()
-    for function_ea in Functions(idc.SegStart(ea), idc.SegEnd(ea)):
+    functions = Functions(idc.SegStart(ea), idc.SegEnd(ea))
+    
+    for function_ea in functions:
         name = idc.GetFunctionName(function_ea)
         if DEBUG:
         	print "Uploading %s at " % name, datetime.now()
-        bincrowd_upload(function_ea)
-    print "done"
+        ret_val = bincrowd_upload(function_ea)
+        
+        if ret_val == UploadReturn.COULDNT_READ_CONFIG_FILE:
+            return
+        
+        upload_stats[ret_val] += 1
+        break
+
+    total_functions = sum(upload_stats)
+    success_count = upload_stats[UploadReturn.UPLOAD_SUCCESS_ADDED] + upload_stats[UploadReturn.UPLOAD_SUCCESS_CHANGED]
+    
+    print "All function information was uploaded"
+    print "  Successful: %d (%.02f%%)" % (success_count, 100.0 * success_count / total_functions)
+    print "  Added new functions: %d (%.02f%%)" % (upload_stats[UploadReturn.UPLOAD_SUCCESS_ADDED], 100.0 * upload_stats[UploadReturn.UPLOAD_SUCCESS_ADDED] / total_functions)
+    print "  Changed existing functions: %d (%.02f%%)" % (upload_stats[UploadReturn.UPLOAD_SUCCESS_CHANGED], 100.0 * upload_stats[UploadReturn.UPLOAD_SUCCESS_CHANGED] / total_functions)
+    print "  Skipped (auto-generated names): %d (%.02f%%)" % (upload_stats[UploadReturn.SKIPPED_AUTO_GENERATED], 100.0 * upload_stats[UploadReturn.SKIPPED_AUTO_GENERATED] / total_functions)
+    print "  Skipped (too small): %d (%.02f%%)" % (upload_stats[UploadReturn.SKIPPED_TOO_SMALL], 100.0 * upload_stats[UploadReturn.SKIPPED_TOO_SMALL] / total_functions)
+    print "  Unknown server reply: %d (%.02f%%)" % (upload_stats[UploadReturn.UNKNOWN_SERVER_REPLY], 100.0 * upload_stats[UploadReturn.UNKNOWN_SERVER_REPLY] / total_functions)
 
 
 def formatresults(results):
