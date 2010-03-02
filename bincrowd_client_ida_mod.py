@@ -401,7 +401,7 @@ def bincrowd_download(ea = None):
 
     c = FunctionSelectionDialog("Retrieved Function Information", formatresults(params))
     selected_row = c.Show(True)
-    print selected_row
+    
     if selected_row >= 0:
         name        = params[selected_row]['name']
         description = params[selected_row]['description']

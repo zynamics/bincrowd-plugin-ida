@@ -41,7 +41,7 @@ class FunctionSelectionDialog(Choose2):
         
 class ModuleSelectionDialog(Choose2):
     def __init__(self, title, items):
-        Choose2.__init__(self, title, [ [ "File", 20 ], ["Count", 20] ], Choose2.CH_MODAL)
+        Choose2.__init__(self, title, [ [ "File", 20 ], ["Pieces of Information", 20] ], Choose2.CH_MODAL)
         self.n = 0
         self.items = items
         self.icon = -1
