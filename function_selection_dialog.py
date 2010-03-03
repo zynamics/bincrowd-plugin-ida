@@ -39,6 +39,10 @@ class FunctionSelectionDialog(Choose2):
     def OnCommand(self, n, cmd_id):
         pass
         
+    def OnGetLineAttr(self, n):
+        if self.items[n][0] == "High":
+            return [0x00FF00, 0]
+
 class ModuleSelectionDialog(Choose2):
     def __init__(self, title, items):
         Choose2.__init__(self, title, [ [ "File", 20 ], ["Pieces of Information", 20] ], Choose2.CH_MODAL)
