@@ -446,6 +446,42 @@ def download_without_application(ea, p):
     
     return (DownloadReturn.SUCCESS, params)
  
+def set_information(params, selected_row, fn):
+    name        = params[selected_row]['name']
+    description = params[selected_row]['description']
+    idc.MakeName(fn.startEA, name)
+    if description:
+        idaapi.set_func_cmt(fn, description, True)
+           
+    (idb_lv, idb_args) = get_frame_information(fn.startEA)
+    (local_variables, arguments) = params[selected_row]['stackFrame']
+        
+    # If the number of downloaded local variables and arguments are the same
+    # as in the current IDB file then we rename the local variables and arguments
+    # too.
+        
+    if (len(idb_lv) == len(local_variables) and len(idb_args) == len(arguments)):
+        total = local_variables + arguments
+        index = 0
+        frame = idc.GetFrame(fn.startEA)
+            
+        if frame != None:
+            start = idc.GetFirstMember(frame)
+            end = idc.GetLastMember(frame)
+            while start <= end:
+                size = idc.GetMemberSize(frame, start)
+    
+                if size == None:
+                    start = start + 1
+                    continue
+                    
+                idc.SetMemberName(frame, start, total[index]['name'])
+                idc.SetMemberComment(frame, start, total[index]['description'], True)
+                   
+                index = index + 1
+                start += size
+
+    
 def bincrowd_download(ea = None):
     if not ea:
         ea = here()
@@ -466,12 +502,7 @@ def bincrowd_download(ea = None):
     selected_row = c.Show(True)
     
     if selected_row >= 0:
-        name        = params[selected_row]['name']
-        description = params[selected_row]['description']
-        idc.MakeName(fn.startEA, name)
-        if description:
-            idaapi.set_func_cmt(fn, description, True)
-
+        set_information(params, selected_row, fn)
 
 def get_information_all_functions(file, result):
     """
@@ -570,19 +601,14 @@ def bincrowd_download_seg():
             
             idc.Jump(selected_ea)
             p = proxyGraph( selected_ea )
+            fn = idaapi.get_func( ea )
             
             function_information = get_single_file_information(result, selected_ea, file)
             function_selection_dialog = FunctionSelectionDialog("Retrieved Function Information", formatresults(function_information, len(p.get_nodes()), len(p.get_edges())))
             selected_row = function_selection_dialog.Show(True)
              
             if selected_row != -1:
-                name = function_information[selected_row]['name']
-                description = function_information[selected_row]['description']
-                
-                fn = idaapi.get_func(selected_ea)
-                idc.MakeName(fn.startEA, name)
-                if description:
-                    idaapi.set_func_cmt(fn, description, True)
+                set_information(function_information, selected_row, fn)
     
             
 """
