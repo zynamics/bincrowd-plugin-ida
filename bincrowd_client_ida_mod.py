@@ -221,18 +221,20 @@ def get_frame_information(ea):
 
         name = idc.GetMemberName(frame, start)
         flag = idc.GetMemberFlag(frame, start)
+        description = idc.GetMemberComment(frame, start, True) \
+            or idc.GetMemberComment(frame, start, False) #repeatable/non-repeatable
         
         if DEBUG:
             print "%s: %d %08X" % (name, size, flag)
         
         start += size
         
-        if flag == 0x400:
+        if name in [" r", " s"]:
             # Skip return address and base pointer
             current = arguments
             continue
 
-        current.append([name, size, flag])
+        current.append({'name' : name, 'description' : description, 'size' : size, 'flag' : flag})
 
     return (local_variables, arguments)
 
@@ -303,6 +305,8 @@ def bincrowd_upload (ea=None):
 
     (local_variables, arguments) = get_frame_information(ea)
         
+    stackFrame = ( local_variables, arguments )
+    
     # Handle optional parameters.
     functionInformation = {
                 'baseAddress'             : idaapi.get_imagebase(),
@@ -312,9 +316,7 @@ def bincrowd_upload (ea=None):
                 'operatingSystemVersion'  : '',
                 'language'                : idaapi.get_compiler_name(inf.cc.id),
                 'numberOfNodes'           : "%d" % number_of_nodes,
-                'numberOfArguments'       : len(arguments),
                 'frameSize'               : fn.frsize,
-                'frameNumberOfVariables'  : len(local_variables),
                 'idaSignature'            : ''
                 }
 
@@ -327,15 +329,15 @@ def bincrowd_upload (ea=None):
                 'description'             : '' #str NOTEPAD netblob?
                 }
     #idaapi.get_file_type_name() #"Portable executable for 80386 (PE)"
-
+    
     parameters = {
                  'username':user, 'password':password, 'version':CLIENTVERSION,
                  'name':name, 'description':description,                                
                  'primeProduct':'%d'%prime, 'edges':edges, 
                  'functionInformation':functionInformation,                                 
-                 'fileInformation':fileInformation                                             
+                 'fileInformation':fileInformation,
+                 'stackFrame':stackFrame
                  }
-
 #    time.sleep(UPLOADDELAY)        
     try:
         rpc_srv = xmlrpclib.ServerProxy(RPCURI,allow_none=True)
