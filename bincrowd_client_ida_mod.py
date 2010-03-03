@@ -221,6 +221,7 @@ def bincrowd_upload (ea=None):
 
     try:
         p = proxyGraph( fn.startEA )
+        number_of_nodes = len(p.get_nodes())
         e = extract_edge_tuples_from_graph( p )
     except:
         print "0x%X: '%s' was not uploaded because there was a local error in the edge list." % (fn.startEA, name)
@@ -260,6 +261,7 @@ def bincrowd_upload (ea=None):
                 'operatingSystem'         : '%d (index defined in libfuncs.hpp?)'%inf.ostype,
                 'operatingSystemVersion'  : '',
                 'language'                : idaapi.get_compiler_name(inf.cc.id),
+                'numberOfNodes'           : "%d" % number_of_nodes,
                 'numberOfArguments'       : None,#int  
                 'frameSize'               : fn.frsize,
                 'frameNumberOfVariables'  : None,#int  
@@ -337,17 +339,19 @@ def formatresults(results):
     strlist = []
     for r in results:
         degree          = r['matchDegree']
-        file            = r['file']         if len(r['file'])       <=26  else r['file'][:23]+'...'
-        name            = r['name']         if len(r['name'])       <=26  else r['name'][:23]+'...'
-        description     = r['description']  if len(r['description'])<=100 else r['description'][:97]+'...'
+        file            = r['file']           if len(r['file'])       <=26  else r['file'][:23]+'...'
+        name            = r['name']           if len(r['name'])       <=26  else r['name'][:23]+'...'
+        description     = r['description']    if len(r['description'])<=100 else r['description'][:97]+'...'
+        numberOfNodes   = r['numberOfNodes']
         owner           = r['owner']
-        strlist.append([MATCHDEGREE_STRINGS[degree], file, name, description, owner])
+        strlist.append([MATCHDEGREE_STRINGS[degree], file, name, description, "%d" % numberOfNodes, owner])
     return strlist
         
 class DownloadReturn:
     SUCCESS = 0
     COULDNT_READ_CONFIG_FILE = 1
     COULDNT_RETRIEVE_DATA = 2
+    COULDNT_CONNECT_TO_SERVER = 2
     
 def download_without_application(ea = None):
     user, password = read_config_file()
@@ -373,9 +377,13 @@ def download_without_application(ea = None):
                  'username':user, 'password':password, 'version':CLIENTVERSION,
                  'primeProduct':'%d'%prime,'edges':edges, 
                  }
-    
-    rpc_srv = xmlrpclib.ServerProxy(RPCURI,allow_none=True)
-    response = rpc_srv.download(parameters)
+    try:
+        rpc_srv = xmlrpclib.ServerProxy(RPCURI,allow_none=True)
+        response = rpc_srv.download(parameters)
+    except:
+        print "Error: Could not connect to BinCrowd server"
+        return (DownloadReturn.COULDNT_CONNECT_TO_SERVER, None)
+        
     try:
         (params, methodname) = xmlrpclib.loads(response)
     except:
