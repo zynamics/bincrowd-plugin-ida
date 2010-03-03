@@ -187,7 +187,55 @@ class UploadReturn:
     SKIPPED_INTERNAL_ERROR = 4
     SKIPPED_TOO_SMALL = 5
     UNKNOWN_SERVER_REPLY = 6
+    COULDNT_CONNECT_TO_SERVER = 7
         
+def get_frame_information(ea):
+    """
+    This function returns a tuple of local variables of a stack frame and
+    the arguments passed to the function.
+    
+    The function assumes that the stack frame has the following layout:
+    
+    local variables
+    return address and/or base pointer
+    arguments
+    """
+    local_variables = [ ]
+    arguments = [ ]
+    current = local_variables
+
+    frame = idc.GetFrame(ea)
+    
+    if frame == None:
+        return [[], []]
+    
+    start = idc.GetFirstMember(frame)
+    end = idc.GetLastMember(frame)
+    
+    while start <= end:
+        size = idc.GetMemberSize(frame, start)
+        
+        if size == None:
+            start = start + 1
+            continue
+
+        name = idc.GetMemberName(frame, start)
+        flag = idc.GetMemberFlag(frame, start)
+        
+        if DEBUG:
+            print "%s: %d %08X" % (name, size, flag)
+        
+        start += size
+        
+        if flag == 0x400:
+            # Skip return address and base pointer
+            current = arguments
+            continue
+
+        current.append([name, size, flag])
+
+    return (local_variables, arguments)
+
 def bincrowd_upload (ea=None):
     user, password = read_config_file()
     
@@ -235,7 +283,7 @@ def bincrowd_upload (ea=None):
     
     description = idaapi.get_func_cmt(fn, True) \
                 or idaapi.get_func_cmt(fn, False) #repeatable/non-repeatable
-
+    
     md5 = idc.GetInputMD5().lower()
     sha1 = None
     sha256 = None
@@ -253,6 +301,8 @@ def bincrowd_upload (ea=None):
     else:
         processor = inf.procName
 
+    (local_variables, arguments) = get_frame_information(ea)
+        
     # Handle optional parameters.
     functionInformation = {
                 'baseAddress'             : idaapi.get_imagebase(),
@@ -262,9 +312,9 @@ def bincrowd_upload (ea=None):
                 'operatingSystemVersion'  : '',
                 'language'                : idaapi.get_compiler_name(inf.cc.id),
                 'numberOfNodes'           : "%d" % number_of_nodes,
-                'numberOfArguments'       : None,#int  
+                'numberOfArguments'       : len(arguments),
                 'frameSize'               : fn.frsize,
-                'frameNumberOfVariables'  : None,#int  
+                'frameNumberOfVariables'  : len(local_variables),
                 'idaSignature'            : ''
                 }
 
@@ -285,10 +335,15 @@ def bincrowd_upload (ea=None):
                  'functionInformation':functionInformation,                                 
                  'fileInformation':fileInformation                                             
                  }
-                 
+
 #    time.sleep(UPLOADDELAY)        
-    rpc_srv = xmlrpclib.ServerProxy(RPCURI,allow_none=True)
-    response = rpc_srv.upload(parameters)
+    try:
+        rpc_srv = xmlrpclib.ServerProxy(RPCURI,allow_none=True)
+        response = rpc_srv.upload(parameters)
+    except:
+        print "Error: Could not connect to BinCrowd server"
+        return (UploadReturn.COULDNT_CONNECT_TO_SERVER, None)
+        
     print "0x%X: '%s' %s." % (fn.startEA, name, response)
     
     if response == "Added new function":
@@ -316,7 +371,7 @@ def bincrowd_upload_seg():
         	print "Uploading %s at " % name, datetime.now()
         ret_val = bincrowd_upload(function_ea)
         
-        if ret_val == UploadReturn.COULDNT_READ_CONFIG_FILE:
+        if ret_val in (UploadReturn.COULDNT_READ_CONFIG_FILE, UploadReturn.COULDNT_CONNECT_TO_SERVER):
             return
         
         upload_stats[ret_val] += 1
@@ -489,7 +544,7 @@ def bincrowd_download_seg():
     
     # Create a list of [file name, number of pieces of information for that file]
     file_count_list = [[key, "%d" % file_count[key]] for key in sorted(file_count, key=file_count.get, reverse=True)]
-    print file_count
+    
     while True:
         # Let the user pick from what module he wants to copy information
         module_dialog = ModuleSelectionDialog("Retrieved Function Information", file_count_list)
