@@ -343,8 +343,9 @@ def formatresults(results):
         name            = r['name']           if len(r['name'])       <=26  else r['name'][:23]+'...'
         description     = r['description']    if len(r['description'])<=100 else r['description'][:97]+'...'
         numberOfNodes   = r['numberOfNodes']
+        numberOfEdges   = r['numberOfEdges']
         owner           = r['owner']
-        strlist.append([MATCHDEGREE_STRINGS[degree], file, name, description, "%d" % numberOfNodes, owner])
+        strlist.append([MATCHDEGREE_STRINGS[degree], file, name, description, "%d" % numberOfNodes, "%d" % numberOfEdges, owner])
     return strlist
         
 class DownloadReturn:
