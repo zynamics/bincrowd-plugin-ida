@@ -334,7 +334,7 @@ def bincrowd_upload_seg():
 
 MATCHDEGREE_STRINGS = [ "", "High", "Medium", "Low" ]
 
-def formatresults(results):
+def formatresults(results, currentNodeCount, currentEdgeCount):
     """ build formatted strings of results and store in self.list """
     strlist = []
     for r in results:
@@ -345,7 +345,7 @@ def formatresults(results):
         numberOfNodes   = r['numberOfNodes']
         numberOfEdges   = r['numberOfEdges']
         owner           = r['owner']
-        strlist.append([MATCHDEGREE_STRINGS[degree], file, name, description, "%d" % numberOfNodes, "%d" % numberOfEdges, owner])
+        strlist.append([MATCHDEGREE_STRINGS[degree], file, name, description, "%d (%d)" % (numberOfNodes, numberOfNodes - currentNodeCount), "%d (%d)" % (numberOfEdges, numberOfEdges - currentEdgeCount), owner])
     return strlist
         
 class DownloadReturn:
@@ -354,22 +354,18 @@ class DownloadReturn:
     COULDNT_RETRIEVE_DATA = 2
     COULDNT_CONNECT_TO_SERVER = 2
     
-def download_without_application(ea = None):
+def download_without_application(ea, p):
     user, password = read_config_file()
     
     if user == None:
     	print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
     	return (DownloadReturn.COULDNT_READ_CONFIG_FILE, None)
 
-    if not ea:
-        ea = here()
-
     fn = idaapi.get_func(ea)
     inf = idaapi.get_inf_structure()
 
     print "Requesting information for function at 0x%X"%fn.startEA
 
-    p = proxyGraph(fn.startEA)
     e = extract_edge_tuples_from_graph(p)
     edges = edges_array_to_dict(e)
     prime = calculate_prime_product_from_graph(fn.startEA)
@@ -398,8 +394,9 @@ def bincrowd_download(ea = None):
         ea = here()
 
     fn = idaapi.get_func(ea)
+    p = proxyGraph(fn.startEA)
     
-    (error_code, params) = download_without_application(ea)
+    (error_code, params) = download_without_application(fn.startEA, p)
 
     if error_code != DownloadReturn.SUCCESS:
     	return
@@ -408,7 +405,7 @@ def bincrowd_download(ea = None):
         print "No information for function '%s' available" % idc.GetFunctionName(fn.startEA)
         return
 
-    c = FunctionSelectionDialog("Retrieved Function Information", formatresults(params))
+    c = FunctionSelectionDialog("Retrieved Function Information", formatresults(params, len(p.get_nodes()), len(p.get_edges())))
     selected_row = c.Show(True)
     
     if selected_row >= 0:
@@ -475,7 +472,8 @@ def bincrowd_download_seg():
         if DEBUG:
             print "Downloading %s at " % name, datetime.now()
         
-        (error_code, params) = download_without_application(function_ea)
+        p = proxyGraph(function_ea)
+        (error_code, params) = download_without_application(function_ea, p)
         result[function_ea] = (error_code, params)
         
         if error_code == DownloadReturn.SUCCESS:
@@ -514,9 +512,10 @@ def bincrowd_download_seg():
             selected_ea = all_functions_information[selected_function][0]
             
             idc.Jump(selected_ea)
+            p = proxyGraph( selected_ea )
             
             function_information = get_single_file_information(result, selected_ea, file)
-            function_selection_dialog = FunctionSelectionDialog("Retrieved Function Information", formatresults(function_information))
+            function_selection_dialog = FunctionSelectionDialog("Retrieved Function Information", formatresults(function_information, len(p.get_nodes()), len(p.get_edges())))
             selected_row = function_selection_dialog.Show(True)
              
             if selected_row != -1:
