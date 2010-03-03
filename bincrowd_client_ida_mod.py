@@ -18,8 +18,8 @@ CLIENTVERSION = "0.1"
 #CLIENTNAME = "Bincrowd IDA"
 UPLOADHOTKEY = "Ctrl-1"
 DOWNLOADHOTKEY = "Ctrl-2"
-UPLOADSEGHOTKEY = "Ctrl-3"
-DOWNLOADSEGHOTKEY = "Ctrl-4"
+UPLOADALLHOTKEY = "Ctrl-3"
+DOWNLOADALLHOTKEY = "Ctrl-4"
 UPLOADDELAY = 0.1 #passed to time.sleep()
 
 class proxyGraphNode:
@@ -361,11 +361,10 @@ def bincrowd_upload (ea=None):
     #print pprint.PrettyPrinter().pformat(dir(rpc_srv._ServerProxy__request))
     #print pprint.PrettyPrinter().pformat(dir(rpc_srv._ServerProxy__handler))
 
-def bincrowd_upload_seg():
+def bincrowd_upload_all():
     upload_stats = [0, 0, 0, 0, 0, 0, 0]
     
-    ea = idc.ScreenEA()
-    functions = Functions(idc.SegStart(ea), idc.SegEnd(ea))
+    functions = Functions(0, 0xFFFFFFFF)
     
     for function_ea in functions:
         name = idc.GetFunctionName(function_ea)
@@ -461,6 +460,7 @@ def set_information(params, selected_row, fn):
     # too.
         
     if (len(idb_lv) == len(local_variables) and len(idb_args) == len(arguments)):
+
         total = local_variables + arguments
         index = 0
         frame = idc.GetFrame(fn.startEA)
@@ -468,19 +468,27 @@ def set_information(params, selected_row, fn):
         if frame != None:
             start = idc.GetFirstMember(frame)
             end = idc.GetLastMember(frame)
-            while start <= end:
+            
+            # The second check is important for stack frames ending in " r" or " s"
+            while start <= end and index < len(total):
                 size = idc.GetMemberSize(frame, start)
     
                 if size == None:
                     start = start + 1
                     continue
                     
-                idc.SetMemberName(frame, start, total[index]['name'])
+                name = total[index]['name']
+                
+                if name in [" r", " s"]:
+                    # Skip return address and base pointer
+                    start += size
+                    continue
+            
+                idc.SetMemberName(frame, start, name)
                 idc.SetMemberComment(frame, start, total[index]['description'], True)
                    
                 index = index + 1
                 start += size
-
     
 def bincrowd_download(ea = None):
     if not ea:
@@ -506,7 +514,7 @@ def bincrowd_download(ea = None):
 
 def get_information_all_functions(file, result):
     """
-    Takes the results of a segment download request and returns only
+    Takes the results of a file download request and returns only
     those pieces of information that come from the given source file.
     
     The result is a list that contains the ea of the target functions
@@ -543,17 +551,16 @@ def get_single_file_information(result, selected_ea, file):
     """
     return [r for r in result[selected_ea][1] if r['file'] == file]
 
-def bincrowd_download_seg():
+def bincrowd_download_all():
     """
-    Downloads information for all functions of the given segment and lets
+    Downloads information for all functions of the given file and lets
     the user choose what information he wants to accept.
     """
     
     result = { }     # ea => (error_code, information)
     file_count = { } # file => [ number of functions with information ]
     
-    ea = idc.ScreenEA()
-    functions = Functions(idc.SegStart(ea), idc.SegEnd(ea))
+    functions = Functions(0, 0xFFFFFFFF)
     
     for function_ea in functions:
         name = idc.GetFunctionName(function_ea)
@@ -601,7 +608,7 @@ def bincrowd_download_seg():
             
             idc.Jump(selected_ea)
             p = proxyGraph( selected_ea )
-            fn = idaapi.get_func( ea )
+            fn = idaapi.get_func( selected_ea )
             
             function_information = get_single_file_information(result, selected_ea, file)
             function_selection_dialog = FunctionSelectionDialog("Retrieved Function Information", formatresults(function_information, len(p.get_nodes()), len(p.get_edges())))
@@ -623,10 +630,10 @@ print "Registering hotkey %s for bincrowd_download()"%DOWNLOADHOTKEY
 idaapi.CompileLine('static _bincrowd_download() { RunPythonStatement("bincrowd_download()"); }')
 idc.AddHotkey(DOWNLOADHOTKEY,"_bincrowd_download")
 
-print "Registering hotkey %s for bincrowd_upload_seg()"%UPLOADSEGHOTKEY
-idaapi.CompileLine('static _bincrowd_upload_seg() { RunPythonStatement("bincrowd_upload_seg()"); }')
-idc.AddHotkey(UPLOADSEGHOTKEY,"_bincrowd_upload_seg")
+print "Registering hotkey %s for bincrowd_upload_all()"%UPLOADALLHOTKEY
+idaapi.CompileLine('static _bincrowd_upload_all() { RunPythonStatement("bincrowd_upload_all()"); }')
+idc.AddHotkey(UPLOADALLHOTKEY,"_bincrowd_upload_all")
 
-print "Registering hotkey %s for _bincrowd_download_seg()"%DOWNLOADSEGHOTKEY
-idaapi.CompileLine('static _bincrowd_download_seg() { RunPythonStatement("bincrowd_download_seg()"); }')
-idc.AddHotkey(DOWNLOADSEGHOTKEY,"_bincrowd_download_seg")
+print "Registering hotkey %s for _bincrowd_download_all()"%DOWNLOADALLHOTKEY
+idaapi.CompileLine('static _bincrowd_download_all() { RunPythonStatement("bincrowd_download_all()"); }')
+idc.AddHotkey(DOWNLOADALLHOTKEY,"_bincrowd_download_all")
