@@ -713,7 +713,8 @@ class DownloadReturn:
     SUCCESS = 0
     COULDNT_READ_CONFIG_FILE = 1
     COULDNT_RETRIEVE_DATA = 2
-    COULDNT_CONNECT_TO_SERVER = 2
+    COULDNT_CONNECT_TO_SERVER = 3
+    FUNCTION_TOO_SMALL = 4
     
 def download_imported_function(module, name):
 
@@ -767,6 +768,10 @@ def download_regular_function(ea):
 
     e = extract_edge_tuples_from_graph(p)
     edges = edges_array_to_dict(e)
+    
+    if not edges:
+        return (DownloadReturn.FUNCTION_TOO_SMALL, None)
+    
     prime = calculate_prime_product_from_graph(fn.startEA)
 
     parameters = {
@@ -786,22 +791,26 @@ def download_regular_function(ea):
     except:
         print response
         return (DownloadReturn.COULDNT_RETRIEVE_DATA, None)
-    
-def download_without_application(ea):
+        
+def fill_imported_functions():
+    for import_index in xrange(idaapi.get_import_module_qty()):
+        imported_functions.append([])
+        idaapi.enum_import_names(import_index, imported_functions_callback)
+
+def fill_imported_functions_if_necessary():
     if len(imported_functions) == 0:
-        for import_index in xrange(idaapi.get_import_module_qty()):
-            imported_functions.append([])
-            idaapi.enum_import_names(import_index, imported_functions_callback)
+        fill_imported_functions()
+            
+def download_without_application(ea):
+    fill_imported_functions_if_necessary()
 
     imported_function = get_imported_function(imported_functions, ea)
     
     if imported_function:
         (module, name) = imported_function
-        (error_code, params) = download_imported_function(module, name)
+        return download_imported_function(module, name)
     else:
-        (error_code, params) = download_regular_function(ea)
-    
-    return (DownloadReturn.SUCCESS, params)
+        return download_regular_function(ea)
  
 def set_information(params, selected_row, fn):
     name        = params[selected_row]['name']
@@ -918,6 +927,14 @@ def get_information_all_functions(file, result):
     
     return sorted(result_list, lambda x, y : y[1] - x[1])
     
+def get_function_name(ea):
+    imported_function = get_imported_function(imported_functions, ea)
+    
+    if imported_function:
+        return imported_function[1] + " (Imported)"
+    else:
+        return idc.GetFunctionName(ea)
+     
 def get_display_information_all_functions(information):
     """
     Converts information returned from get_information_all_functions and
@@ -925,7 +942,7 @@ def get_display_information_all_functions(information):
     chooser2 dialog.
     """
     
-    return [[idc.GetFunctionName(ea), "%d" % count] for [ea, count] in information]
+    return [[get_function_name(ea), "%d" % count] for [ea, count] in information]
     
 def get_single_file_information(result, selected_ea, file):
     """
@@ -943,10 +960,28 @@ def bincrowd_download_all():
     result = { }     # ea => (error_code, information)
     file_count = { } # file => [ number of functions with information ]
     
-    functions = Functions(0, 0xFFFFFFFF)
+    fill_imported_functions_if_necessary()
+
+    for index in xrange(len(imported_functions)):
+        for function_ea, name in imported_functions[index]:
+            (error_code, params) = download_without_application(function_ea)
+            result[function_ea] = (error_code, params)
+        
+            if error_code == DownloadReturn.SUCCESS:
+                for i in xrange(len(params)):
+                    file = params[i]['file']
+            
+                    if not file_count.has_key(file):
+                        file_count[file] = 0
+                
+                    file_count[file] = file_count[file] + 1
+            else:
+                pass # Do some error handling in the future
+        
+    for function_ea in Functions(0, 0xFFFFFFFF):
     
-    for function_ea in functions:
         name = idc.GetFunctionName(function_ea)
+        
         if DEBUG:
             print "Downloading %s at " % name, datetime.now()
         
@@ -963,7 +998,7 @@ def bincrowd_download_all():
                 file_count[file] = file_count[file] + 1
         else:
             pass # Do some error handling in the future
-    
+            
     # Create a list of [file name, number of pieces of information for that file]
     file_count_list = [[key, "%d" % file_count[key]] for key in sorted(file_count, key=file_count.get, reverse=True)]
     
@@ -989,14 +1024,30 @@ def bincrowd_download_all():
             selected_ea = all_functions_information[selected_function][0]
             
             idc.Jump(selected_ea)
-            p = proxyGraph( selected_ea )
-            fn = idaapi.get_func( selected_ea )
+
+            nodes, edges = get_graph_data(selected_ea)
             
             function_information = get_single_file_information(result, selected_ea, file)
-            function_selection_dialog = FunctionSelectionDialog("Retrieved Function Information", formatresults(function_information, len(p.get_nodes()), len(p.get_edges())))
+            function_selection_dialog = FunctionSelectionDialog("Retrieved Function Information", formatresults(function_information, nodes, edges))
             selected_row = function_selection_dialog.Show(True)
              
             if selected_row != -1:
+                imported_function = get_imported_function(imported_functions, selected_ea)
+                if imported_function:
+                    params = result[selected_ea][1]
+                    (local_variables, arguments) = params[selected_row]['stack_frame']
+            
+                    description = params[selected_row]['description']
+            
+                    if len(arguments) > 0:
+                        description = description + "\n"
+            
+                    for argument in arguments:
+                        description = description + "\n" + argument['name'] + ": " + argument['description']
+            
+                    idaapi.set_cmt(selected_ea, description, True)
+            else:
+                fn = idaapi.get_func( selected_ea )
                 set_information(function_information, selected_row, fn)
     
             
