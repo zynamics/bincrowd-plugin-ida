@@ -67,44 +67,6 @@ class FunctionSelectionDialog(Choose2):
         if self.items[n][0] == "High":
             return [0x00FF00, 0]
 
-class ModuleSelectionDialog(Choose2):
-    def __init__(self, title, items):
-        Choose2.__init__(self, title, [ [ "File", 20 ], ["Pieces of Information", 20] ], Choose2.CH_MODAL)
-        self.n = 0
-        self.items = items
-        self.icon = -1
-        self.selcount = 0
-        self.popup_names = []
-
-    def OnClose(self):
-        pass
-
-    def OnEditLine(self, n):
-        self.items[n][1] = self.items[n][1] + "*"
-
-    def OnInsertLine(self):
-        self.items.append(self.make_item())
-
-    def OnSelectLine(self, n):
-        self.selcount += 1
-        Warning("[%02d] selectline '%s'" % (self.selcount, n))
-
-    def OnGetLine(self, n):
-        return self.items[n]
-
-    def OnGetSize(self):
-        return len(self.items)
-
-    def OnDeleteLine(self, n):
-        del self.items[n]
-        return n
-
-    def OnRefresh(self, n):
-        return n
-
-    def OnCommand(self, n, cmd_id):
-        pass
-        
 class AllFunctionsSelectionDialog(Choose2):
     def __init__(self, title, items):
         Choose2.__init__(self, title, [ [ "Function", 20 ], ["Count", 20] ], Choose2.CH_MODAL)
@@ -977,7 +939,7 @@ def download_regular_function(ea):
     p = proxyGraph(fn.startEA)
     inf = idaapi.get_inf_structure()
 
-    print "Requesting information for function at 0x%X" % fn.startEA
+    print "Downloading information for %s" % get_function_name(ea)
 
     e = extract_edge_tuples_from_graph(p)
     edges = edges_array_to_dict(e)
@@ -1151,6 +1113,9 @@ def set_import_information(information, ea):
 def set_information(ea, information):
     """ Assigns downloaded information to the function at the given ea.
     """
+    
+    print "Assigning information to function %s" % get_function_name(ea)
+    
     imported_function = get_imported_function(imported_functions, ea)
         
     if imported_function:
@@ -1181,26 +1146,12 @@ def bincrowd_download(ea = None):
     if selected_row >= 0:
         set_information(ea, params[selected_row])
 
-def get_information_all_functions(file, result):
-    """
-    Takes the results of a file download request and returns only
-    those pieces of information that come from the given source file.
-    
-    The result is a list that contains the ea of the target functions
-    as well as the number of pieces of information available for the
-    target functions.
-    
-    This is useful to list all functions of the currently active IDB
-    file for which there is information available.
-    """
-    
+def get_information_all_functions(result):
     result_list = []
     
     for ea, (error_code, params) in result.items():
-        if error_code == DownloadReturn.SUCCESS:
-            info_pieces = [f for f in params if f['file'] == file]
-            if len(info_pieces) > 0:
-                result_list.append([ea, len(info_pieces)])
+        if error_code == DownloadReturn.SUCCESS and len(params) > 0:
+            result_list.append([ea, len(params)])
     
     return sorted(result_list, lambda x, y : y[1] - x[1])
     
@@ -1223,12 +1174,8 @@ def get_display_information_all_functions(information):
     
     return [[get_function_name(ea), "%d" % count] for [ea, count] in information]
     
-def get_single_file_information(result, selected_ea, file):
-    """
-    Filters whole download results down to those for a given ea and
-    a given source file.
-    """
-    return [r for r in result[selected_ea][1] if r['file'] == file]
+def get_single_file_information(result, selected_ea):
+    return [r for r in result[selected_ea][1]]
 
 def bincrowd_download_all():
     """
@@ -1237,10 +1184,10 @@ def bincrowd_download_all():
     """
     
     result = { }     # ea => (error_code, information)
-    file_count = { } # file => [ number of functions with information ]
     
     fill_imported_functions_if_necessary()
 
+    # Download all imported functions
     for index in xrange(len(imported_functions)):
         for function_ea, name in imported_functions[index]:
             (error_code, params) = download_without_application(function_ea)
@@ -1249,84 +1196,42 @@ def bincrowd_download_all():
             if error_code == DownloadReturn.SUCCESS:
                 for i in xrange(len(params)):
                     file = params[i]['file']
-            
-                    if not file_count.has_key(file):
-                        file_count[file] = 0
-                
-                    file_count[file] = file_count[file] + 1
             else:
                 pass # Do some error handling in the future
         
+    # Download all regular functions
     for function_ea in Functions(0, 0xFFFFFFFF):
-    
-        name = idc.GetFunctionName(function_ea)
-        
-        debug_print("Downloading %s at " % name, datetime.now())
-        
         (error_code, params) = download_without_application(function_ea)
         result[function_ea] = (error_code, params)
         
         if error_code == DownloadReturn.SUCCESS:
             for i in xrange(len(params)):
                 file = params[i]['file']
-            
-                if not file_count.has_key(file):
-                    file_count[file] = 0
-                
-                file_count[file] = file_count[file] + 1
         else:
             pass # Do some error handling in the future
-            
-    # Create a list of [file name, number of pieces of information for that file]
-    file_count_list = [[key, "%d" % file_count[key]] for key in sorted(file_count, key=file_count.get, reverse=True)]
     
     while True:
-        # Let the user pick from what module he wants to copy information
-        module_dialog = ModuleSelectionDialog("Retrieved Function Information", file_count_list)
-        selected_module = module_dialog.Show(True)
+        # Let the user pick for what target function he wants to copy information
+        all_functions_information = get_information_all_functions(result)
+        all_functions_dialog = AllFunctionsSelectionDialog("All Functions", get_display_information_all_functions(all_functions_information))
+        selected_function = all_functions_dialog.Show(True)
         
-        if selected_module == -1:
+        if selected_function == -1:
             break
-        
-        while True:
-            # Let the user pick for what target function he wants to copy information
-            file = file_count_list[selected_module][0]
-            all_functions_information = get_information_all_functions(file, result)
-            all_functions_dialog = AllFunctionsSelectionDialog("All Functions", get_display_information_all_functions(all_functions_information))
-            selected_function = all_functions_dialog.Show(True)
-        
-            if selected_function == -1:
-                break
 
-            # Let the user pick for what downloaded information he wants to use for his target function
-            selected_ea = all_functions_information[selected_function][0]
+        # Let the user pick for what downloaded information he wants to use for his target function
+        selected_ea = all_functions_information[selected_function][0]
             
-            idc.Jump(selected_ea)
+        idc.Jump(selected_ea)
 
-            nodes, edges = get_graph_data(selected_ea)
+        nodes, edges = get_graph_data(selected_ea)
             
-            function_information = get_single_file_information(result, selected_ea, file)
-            function_selection_dialog = FunctionSelectionDialog("Retrieved Function Information", formatresults(function_information, nodes, edges))
-            selected_row = function_selection_dialog.Show(True)
+        function_information = get_single_file_information(result, selected_ea)
+        function_selection_dialog = FunctionSelectionDialog("Retrieved Function Information", formatresults(function_information, nodes, edges))
+        selected_row = function_selection_dialog.Show(True)
              
-            if selected_row != -1:
-                imported_function = get_imported_function(imported_functions, selected_ea)
-                if imported_function:
-                    params = result[selected_ea][1]
-                    (local_variables, arguments) = params[selected_row]['stack_frame']
-            
-                    description = params[selected_row]['description']
-            
-                    if len(arguments) > 0:
-                        description = description + "\n"
-            
-                    for argument in arguments:
-                        description = description + "\n" + argument['name'] + ": " + argument['description']
-            
-                    idaapi.set_cmt(selected_ea, description, True)
-            else:
-                fn = idaapi.get_func( selected_ea )
-                set_normal_information(function_information[selected_row], fn)
+        if selected_row != -1:
+            set_information(selected_ea, function_information[selected_row])
     
             
 """
