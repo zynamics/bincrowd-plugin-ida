@@ -695,8 +695,6 @@ def bincrowd_upload(ea=None):
                 'base_address'              : idaapi.get_imagebase(),
                 'rva'                       : fn.startEA - idaapi.get_imagebase(),     
                 'processor'                 : processor,
-                'operating_system'          : '%d (index defined in libfuncs.hpp?)' % inf.ostype,
-                'operating_system_version'  : '',
                 'language'                  : idaapi.get_compiler_name(inf.cc.id),
                 'number_of_nodes'           : "%d" % number_of_nodes,
                 'frame_size'                : fn.frsize,
@@ -709,6 +707,7 @@ def bincrowd_upload(ea=None):
                 'hash_sha256'              : sha256, 
                 'name'                     : idc.GetInputFile(),
                 'description'              : '' #str NOTEPAD netblob?
+                'operating_system'          : '%d (index defined in libfuncs.hpp?)' % inf.ostype,
                 }
     parameters = {
                  'username'              : user,
