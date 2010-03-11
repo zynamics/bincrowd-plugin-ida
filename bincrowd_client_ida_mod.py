@@ -597,6 +597,9 @@ def get_demangled_name(ea):
     return name
 
 def get_imported_function(imported_functions, ea):
+    """ Returns the imported function at the given effective address.
+        If there is no imported function at that address, None is returned.
+    """
     for index in xrange(len(imported_functions)):
         functions = imported_functions[index]
         
@@ -628,6 +631,8 @@ def get_processor_name(inf):
         return inf.procName
     
 def bincrowd_upload(ea=None):
+    """ Uploads information for the function at the given ea.
+    """
     uri, user, password = read_config_file()
     
     if user == None:
@@ -771,6 +776,8 @@ def is_showstopper_upload_return_value(ret_val):
     ]
         
 def bincrowd_upload_all():
+    """ Uploads information about all functions in the IDB.
+    """
     upload_stats = [0, 0, 0, 0, 0, 0, 0]
     
     functions = Functions(0, 0xFFFFFFFF)
@@ -820,8 +827,43 @@ class DownloadReturn:
     COULDNT_RETRIEVE_DATA = 2
     COULDNT_CONNECT_TO_SERVER = 3
     FUNCTION_TOO_SMALL = 4
+    INCOMPLETE_DATA = 5
+    INVALID_VERSION_NUMBER = 6
+    USER_NOT_AUTHENTICATED = 7
+    NO_MATCHES_FOUND = 8
+    NO_FUNCTION_AT_ADDRESS = 9
     
+class DownloadImportedResults:
+    """ Contains all possible return values of the download imported function.
+    """
+    
+    # Returned if the 'version' argument was not provided by the client.
+    MISSING_ARGUMENT_VERSION = 1
+    
+    # Returned if the 'username' argument was not provided by the client.
+    MISSING_ARGUMENT_USERNAME = 2
+    
+    # Returned if the 'password' argument was not provided by the client.
+    MISSING_ARGUMENT_PASSWORD = 3
+    
+    # Returned if the 'module' argument was not provided by the client.
+    MISSING_ARGUMENT_MODULE = 4
+    
+    # Returned if the 'name' argument was not provided by the client.
+    MISSING_ARGUMENT_FUNCTION_NAME = 5
+    
+    # Returned if client and server versions are incompatible.
+    INVALID_VERSION_NUMBER = 6
+    
+    # Returned if the provided login credentials could not be used to authenticate the user.
+    USER_NOT_AUTHENTICATED = 7
+    
+    # Returned if no matches for the uploaded functions were found.
+    NO_MATCHES_FOUND = 8
+
 def download_imported_function(module, name):
+    """ Downloads information about an imported function
+    """
 
     print "Downloading information for %s!%s" % (module, name)
 
@@ -834,8 +876,11 @@ def download_imported_function(module, name):
         return (DownloadReturn.COULDNT_CONNECT_TO_SERVER, None)
         
     parameters = {
-                 'username':user, 'password':password, 'version':CLIENTVERSION,
-                 'module' : module, 'name':name
+                 'username' : user,
+                 'password' : password,
+                 'version'  : CLIENTVERSION,
+                 'module'   : module,
+                 'name'     : name
                  }
                  
     try:
@@ -844,21 +889,80 @@ def download_imported_function(module, name):
         print "Error: Could not download data"
         return (DownloadReturn.COULDNT_DOWNLOAD_DATA, None)
 
+    if response in [
+        DownloadImportedResults.MISSING_ARGUMENT_VERSION,
+        DownloadImportedResults.MISSING_ARGUMENT_USERNAME,
+        DownloadImportedResults.MISSING_ARGUMENT_PASSWORD,
+        DownloadImportedResults.MISSING_ARGUMENT_MODULE,
+        DownloadImportedResults.MISSING_ARGUMENT_FUNCTION_NAME
+    ]:
+        print "Error: Uploaded incomplete data (Error code %d)" % response
+        return (DownloadReturn.INCOMPLETE_DATA, None)
+    elif response == DownloadImportedResults.INVALID_VERSION_NUMBER:
+        print "Error: Client uploaded an invalid version number"
+        return (DownloadReturn.INVALID_VERSION_NUMBER, None)
+    elif response == DownloadImportedResults.USER_NOT_AUTHENTICATED:
+        print "Error: User could not be authenticated by the server"
+        return (DownloadReturn.USER_NOT_AUTHENTICATED, None)
+    elif response == DownloadImportedResults.NO_MATCHES_FOUND:
+        return (DownloadReturn.NO_MATCHES_FOUND, None)
+        
     try:
         (params, methodname) = xmlrpclib.loads(response)
+        return (DownloadReturn.SUCCESS, params)
     except:
         print response
         return (DownloadReturn.COULDNT_RETRIEVE_DATA, None)
+
+class DownloadResults:
+    """ Contains all possible return values of the download function.
+    """
     
-    return (DownloadReturn.SUCCESS, params)
-
-imported_functions = []
-
-def imported_functions_callback(ea, name, ord):
-    imported_functions[-1].append((ea, name))
-    return 1
+    # Returned if the 'version' argument was not provided by the client.
+    MISSING_ARGUMENT_VERSION = 1
+    
+    # Returned if the 'username' argument was not provided by the client.
+    MISSING_ARGUMENT_USERNAME = 2
+    
+    # Returned if the 'password' argument was not provided by the client.
+    MISSING_ARGUMENT_PASSWORD = 3
+    
+    # Returned if the 'prime_product' argument was not provided by the client.
+    MISSING_ARGUMENT_PRIME_PRODUCT = 4
+    
+    # Returned if the 'edges' argument was not provided by the client.
+    MISSING_ARGUMENT_EDGES = 5
+    
+    # Returned if any of the edge arguments lack the 'indegree_source' attribute.
+    MISSING_ARGUMENT_EDGE_INDEGREE_SOURCE = 6
+    
+    # Returned if any of the edge arguments lack the 'outdegree_source' attribute.
+    MISSING_ARGUMENT_EDGE_OUTDEGREE_SOURCE = 7
+    
+    # Returned if any of the edge arguments lack the 'indegree_target' attribute.
+    MISSING_ARGUMENT_EDGE_INDEGREE_TARGET = 8
+    
+    # Returned if any of the edge arguments lack the 'outdegree_target' attribute.
+    MISSING_ARGUMENT_EDGE_OUTDEGREE_TARGET = 9
+    
+    # Returned if any of the edge arguments lack the 'topological_order_source' attribute.
+    MISSING_ARGUMENT_EDGE_TOPOLOGICAL_ORDER_SOURCE = 10
+    
+    # Returned if any of the edge arguments lack the 'topological_order_target' attribute.
+    MISSING_ARGUMENT_EDGE_TOPOLOGICAL_ORDER_TARGET = 11
+    
+    # Returned if client and server versions are incompatible.
+    INVALID_VERSION_NUMBER = 12
+    
+    # Returned if the provided login credentials could not be used to authenticate the user.
+    USER_NOT_AUTHENTICATED = 13
+    
+    # Returned if no matches for the uploaded functions were found.
+    NO_MATCHES_FOUND = 14
 
 def download_regular_function(ea):
+    """ Downloads information about the regular function at the given ea
+    """
     uri, user, password = read_config_file()
     
     if user == None:
@@ -866,10 +970,14 @@ def download_regular_function(ea):
     	return (DownloadReturn.COULDNT_READ_CONFIG_FILE, None)
     	
     fn = idaapi.get_func(ea)
+    
+    if not fn:
+        return (DownloadReturn.NO_FUNCTION_AT_ADDRESS, None)
+    
     p = proxyGraph(fn.startEA)
     inf = idaapi.get_inf_structure()
 
-    print "Requesting information for function at 0x%X"%fn.startEA
+    print "Requesting information for function at 0x%X" % fn.startEA
 
     e = extract_edge_tuples_from_graph(p)
     edges = edges_array_to_dict(e)
@@ -880,8 +988,11 @@ def download_regular_function(ea):
     prime = calculate_prime_product_from_graph(fn.startEA)
 
     parameters = {
-                 'username':user, 'password':password, 'version':CLIENTVERSION,
-                 'prime_product':'%d'%prime,'edges':edges, 
+                 'username'       : user,
+                 'password'       : password,
+                 'version'        : CLIENTVERSION,
+                 'prime_product'  : '%d' % prime,
+                 'edges'          : edges, 
                  }
     try:
         rpc_srv = xmlrpclib.ServerProxy(uri, allow_none=True)
@@ -890,6 +1001,30 @@ def download_regular_function(ea):
         print "Error: Could not connect to BinCrowd server"
         return (DownloadReturn.COULDNT_CONNECT_TO_SERVER, None)
         
+    if response in [
+        DownloadResults.MISSING_ARGUMENT_VERSION,
+        DownloadResults.MISSING_ARGUMENT_USERNAME,
+        DownloadResults.MISSING_ARGUMENT_PASSWORD,
+        DownloadResults.MISSING_ARGUMENT_PRIME_PRODUCT,
+        DownloadResults.MISSING_ARGUMENT_EDGES,
+        DownloadResults.MISSING_ARGUMENT_EDGE_INDEGREE_SOURCE,
+        DownloadResults.MISSING_ARGUMENT_EDGE_OUTDEGREE_SOURCE,
+        DownloadResults.MISSING_ARGUMENT_EDGE_INDEGREE_TARGET,
+        DownloadResults.MISSING_ARGUMENT_EDGE_OUTDEGREE_TARGET,
+        DownloadResults.MISSING_ARGUMENT_EDGE_TOPOLOGICAL_ORDER_SOURCE,
+        DownloadResults.MISSING_ARGUMENT_EDGE_TOPOLOGICAL_ORDER_TARGET
+    ]:
+        print "Error: Uploaded incomplete data (Error code %d)" % response
+        return (DownloadReturn.INCOMPLETE_DATA, None)
+    elif response == DownloadResults.INVALID_VERSION_NUMBER:
+        print "Error: Client uploaded an invalid version number"
+        return (DownloadReturn.INVALID_VERSION_NUMBER, None)
+    elif response == DownloadResults.USER_NOT_AUTHENTICATED:
+        print "Error: User could not be authenticated by the server"
+        return (DownloadReturn.USER_NOT_AUTHENTICATED, None)
+    elif response == DownloadResults.NO_MATCHES_FOUND:
+        return (DownloadReturn.NO_MATCHES_FOUND, None)
+        
     try:
         (params, methodname) = xmlrpclib.loads(response)
         return (DownloadReturn.SUCCESS, params)
@@ -897,16 +1032,31 @@ def download_regular_function(ea):
         print response
         return (DownloadReturn.COULDNT_RETRIEVE_DATA, None)
         
+imported_functions = []
+
+def imported_functions_callback(ea, name, ord):
+    """ Callback function for enumerating all imported functions of a module.
+    """
+    imported_functions[-1].append((ea, name))
+    return 1
+
 def fill_imported_functions():
+    """ Fills the global imported_functions variable.
+    """
     for import_index in xrange(idaapi.get_import_module_qty()):
         imported_functions.append([])
         idaapi.enum_import_names(import_index, imported_functions_callback)
 
 def fill_imported_functions_if_necessary():
+    """ Fills the global imported_functions variable if it has not yet been filled.
+    """
     if len(imported_functions) == 0:
         fill_imported_functions()
             
 def download_without_application(ea):
+    """ Downloads information about the function at the given ea without applying
+        that information to the IDB file.
+    """
     fill_imported_functions_if_necessary()
 
     imported_function = get_imported_function(imported_functions, ea)
@@ -917,15 +1067,17 @@ def download_without_application(ea):
     else:
         return download_regular_function(ea)
  
-def set_information(params, selected_row, fn):
-    name        = params[selected_row]['name']
-    description = params[selected_row]['description']
+def set_normal_information(information, fn):
+    """ Assigns downloaded information to the given function.
+    """
+    name        = information['name']
+    description = information['description']
     idc.MakeName(fn.startEA, name)
     if description:
         idaapi.set_func_cmt(fn, description, True)
            
     (idb_lv, idb_args) = get_frame_information(fn.startEA)
-    (local_variables, arguments) = params[selected_row]['stack_frame']
+    (local_variables, arguments) = information['stack_frame']
         
     # If the number of downloaded local variables and arguments are the same
     # as in the current IDB file then we rename the local variables and arguments
@@ -963,17 +1115,52 @@ def set_information(params, selected_row, fn):
                 start += size
 
 def get_graph_data(ea):
+    """ Finds the number of nodes and edges for the function at the given ea.
+        If that function is an imported function, (0, 0) is returned.
+    """
     imported_function = get_imported_function(imported_functions, ea)
     
     if imported_function:
         return (0, 0)
     else:
         fn = idaapi.get_func(ea)
+        
+        if not fn:
+            raise "Internal Error: No function at the given ea"
+        
         p = proxyGraph(fn.startEA)
         
         return (len(p.get_nodes()), len(p.get_edges()))
 
+def set_import_information(information, ea):
+    """ Sets the repeatable comment of the imported function at the given ea
+        to whatever information was returnd from the server
+    """
+    (local_variables, arguments) = information['stack_frame']
+            
+    description = information['description']
+            
+    if len(arguments) > 0:
+        description = description + "\n"
+            
+    for argument in arguments:
+        description = description + "\n" + argument['name'] + ": " + argument['description']
+            
+    idaapi.set_cmt(ea, description, True)
+    
+def set_information(ea, information):
+    """ Assigns downloaded information to the function at the given ea.
+    """
+    imported_function = get_imported_function(imported_functions, ea)
+        
+    if imported_function:
+        set_import_information(information, ea)
+    else:
+        set_normal_information(information, idaapi.get_func(ea))
+        
 def bincrowd_download(ea = None):
+    """ Downloads information for the function at the given ea.
+    """
     if not ea:
         ea = here()
 
@@ -983,7 +1170,7 @@ def bincrowd_download(ea = None):
     	return
     	
     if len(params) == 0:
-        print "No information for function '%s' available" % idc.GetFunctionName(ea)
+        print "No information for function '%s' available" % get_function_name(ea)
         return
         
     nodes, edges = get_graph_data(ea)
@@ -992,22 +1179,7 @@ def bincrowd_download(ea = None):
     selected_row = c.Show(True)
     
     if selected_row >= 0:
-        imported_function = get_imported_function(imported_functions, ea)
-        if imported_function:
-            (local_variables, arguments) = params[selected_row]['stack_frame']
-            
-            description = params[selected_row]['description']
-            
-            if len(arguments) > 0:
-                description = description + "\n"
-            
-            for argument in arguments:
-                print argument
-                description = description + "\n" + argument['name'] + ": " + argument['description']
-            
-            idaapi.set_cmt(ea, description, True)
-        else:
-            set_information(params, selected_row, idaapi.get_func(ea))
+        set_information(ea, params[selected_row])
 
 def get_information_all_functions(file, result):
     """
@@ -1033,6 +1205,8 @@ def get_information_all_functions(file, result):
     return sorted(result_list, lambda x, y : y[1] - x[1])
     
 def get_function_name(ea):
+    """ Returns the name of the function at the given address.
+    """
     imported_function = get_imported_function(imported_functions, ea)
     
     if imported_function:
@@ -1152,7 +1326,7 @@ def bincrowd_download_all():
                     idaapi.set_cmt(selected_ea, description, True)
             else:
                 fn = idaapi.get_func( selected_ea )
-                set_information(function_information, selected_row, fn)
+                set_normal_information(function_information[selected_row], fn)
     
             
 """
