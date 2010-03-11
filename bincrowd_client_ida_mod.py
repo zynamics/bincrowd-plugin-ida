@@ -19,7 +19,9 @@ DOWNLOADHOTKEY = "Ctrl-2"
 UPLOADALLHOTKEY = "Ctrl-3"
 DOWNLOADALLHOTKEY = "Ctrl-4"
 
-SCRIPT_DIRECTORY = "C:/programme/ida56/bincrowd-plugin-ida"
+# We have to get the script directory globally, it is not set
+# anymore when the script is evaluated through the hotkeys.
+SCRIPT_DIRECTORY = sys.argv[0]
 
 def debug_print(string):
     if DEBUG:
@@ -402,10 +404,7 @@ def edges_array_to_dict(e):
 def read_config_file():
     debug_print("Reading configuration file")
     
-    directory = os.path.dirname(sys.argv[0])
-    
-    if directory == "":
-        directory = SCRIPT_DIRECTORY
+    directory = os.path.dirname(SCRIPT_DIRECTORY)
     
     configuration_file = directory + "/bincrowd.cfg"
     
