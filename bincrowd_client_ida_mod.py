@@ -615,20 +615,6 @@ def get_imported_function(imported_functions, ea):
 
     return None
     
-def get_file_hashes():
-    md5 = idc.GetInputMD5().lower()
-    sha1 = None
-    sha256 = None
-    filepath = idc.GetInputFilePath()
-    if os.path.exists(filepath) and os.path.isfile(filepath):
-        f = file(filepath, 'rb')
-        data = f.read()
-        f.close()
-        sha1 = hashlib.sha1(data).hexdigest().lower()
-        sha256 = hashlib.sha256(data).hexdigest().lower()    
-
-    return md5, sha1, sha256
-
 def get_processor_name(inf):
     null_idx = inf.procName.find(chr(0))
     if null_idx > 0:
@@ -681,7 +667,7 @@ def bincrowd_upload(ea=None):
     #repeatable/non-repeatable
     description = idaapi.get_func_cmt(fn, True) or idaapi.get_func_cmt(fn, False)
 
-    md5, sha1, sha256 = get_file_hashes()
+    md5 = idc.GetInputMD5().lower()
     
     inf = idaapi.get_inf_structure()
     processor = get_processor_name(inf)
@@ -696,17 +682,13 @@ def bincrowd_upload(ea=None):
                 'rva'                       : fn.startEA - idaapi.get_imagebase(),     
                 'processor'                 : processor,
                 'language'                  : idaapi.get_compiler_name(inf.cc.id),
-                'number_of_nodes'           : "%d" % number_of_nodes,
-                'frame_size'                : fn.frsize,
-                'ida_signature'             : ''
+                'number_of_nodes'           : "%d" % number_of_nodes
                 }
 
     fileInformation = {
                 'hash_md5'                 : md5,
-                'hash_sha1'                : sha1, 
-                'hash_sha256'              : sha256, 
                 'name'                     : idc.GetInputFile(),
-                'description'              : '' #str NOTEPAD netblob?
+                'description'              : '',
                 'operating_system'          : '%d (index defined in libfuncs.hpp?)' % inf.ostype,
                 }
     parameters = {
