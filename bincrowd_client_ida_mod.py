@@ -8,6 +8,7 @@ from datetime import datetime
 import xmlrpclib
 from idaapi import Choose2
 import idautils
+import locale
 
 DEBUG = False
 
@@ -669,6 +670,9 @@ def bincrowd_upload(ea=None):
     
     #repeatable/non-repeatable
     description = idaapi.get_func_cmt(fn, True) or idaapi.get_func_cmt(fn, False)
+    
+    if description:
+        description = description.decode("iso-8859-1")
 
     md5 = idc.GetInputMD5().lower()
     
@@ -694,12 +698,13 @@ def bincrowd_upload(ea=None):
                 'description'              : '',
                 'operating_system'          : '%d (index defined in libfuncs.hpp?)' % inf.ostype,
                 }
+    
     parameters = {
                  'username'              : user,
                  'password'              : password,
                  'version'               : CLIENTVERSION,
                  'name'                  : name,
-                 'description'           : description.decode("iso-8859-1"),
+                 'description'           : description,
                  'prime_product'         : '%d' % prime,
                  'edges'                 : edges, 
                  'function_information'  : functionInformation,                                 
@@ -957,7 +962,7 @@ def clean_params(params):
     for param in params:
         for k, v in param.items():
             if type(v) == type(u""):
-                param[k] = v.encode("ascii", "ignore")
+                param[k] = v.encode("iso-8859-1", "ignore")
     
 def download_regular_function(ea):
     """ Downloads information about the regular function at the given ea
