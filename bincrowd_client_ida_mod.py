@@ -575,7 +575,7 @@ def get_frame_information(ea):
             or idc.GetMemberComment(frame, start, False) #repeatable/non-repeatable
             
         if description:
-            description = description.decode("iso-8859-1")
+            description = idaapi.idb2scr(description).decode("iso-8859-1")
         
         debug_print("%s: %d %08X" % (name, size, flag))
         
@@ -672,7 +672,7 @@ def bincrowd_upload(ea=None):
     description = idaapi.get_func_cmt(fn, True) or idaapi.get_func_cmt(fn, False)
     
     if description:
-        description = description.decode("iso-8859-1")
+        description = idaapi.idb2scr(description).decode("iso-8859-1")
 
     md5 = idc.GetInputMD5().lower()
     
@@ -962,7 +962,10 @@ def clean_params(params):
     for param in params:
         for k, v in param.items():
             if type(v) == type(u""):
-                param[k] = v.encode("iso-8859-1", "ignore")
+                param[k] = idaapi.scr2idb(v.encode("iso-8859-1", "ignore"))
+            if type(v) == type([]):
+                clean_params(v[0])
+                clean_params(v[1])
     
 def download_regular_function(ea):
     """ Downloads information about the regular function at the given ea
