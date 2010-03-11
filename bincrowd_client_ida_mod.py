@@ -572,6 +572,9 @@ def get_frame_information(ea):
         flag = idc.GetMemberFlag(frame, start)
         description = idc.GetMemberComment(frame, start, True) \
             or idc.GetMemberComment(frame, start, False) #repeatable/non-repeatable
+            
+        if description:
+            description = description.decode("iso-8859-1")
         
         debug_print("%s: %d %08X" % (name, size, flag))
         
@@ -581,7 +584,7 @@ def get_frame_information(ea):
             # Skip return address and base pointer
             current = arguments
             continue
-
+        
         current.append({'name' : name, 'description' : description, 'size' : size, 'flag' : flag})
 
     return (local_variables, arguments)
@@ -675,7 +678,7 @@ def bincrowd_upload(ea=None):
     (local_variables, arguments) = get_frame_information(ea)
         
     stackFrame = (local_variables, arguments)
-
+    
     # Handle optional parameters.
     functionInformation = {
                 'base_address'              : idaapi.get_imagebase(),
@@ -696,7 +699,7 @@ def bincrowd_upload(ea=None):
                  'password'              : password,
                  'version'               : CLIENTVERSION,
                  'name'                  : name,
-                 'description'           : description,
+                 'description'           : description.decode("iso-8859-1"),
                  'prime_product'         : '%d' % prime,
                  'edges'                 : edges, 
                  'function_information'  : functionInformation,                                 
@@ -712,7 +715,8 @@ def bincrowd_upload(ea=None):
         
     try:
         response = rpc_srv.upload(parameters)
-    except:
+    except Exception, e:
+        print e
         print "Error: Could not upload data"
         return (UploadReturn.COULDNT_UPLOAD_DATA, None)
         
@@ -897,6 +901,7 @@ def download_imported_function(module, name):
         
     try:
         (params, methodname) = xmlrpclib.loads(response)
+        clean_params(params)
         return (DownloadReturn.SUCCESS, params)
     except:
         print response
@@ -948,6 +953,12 @@ class DownloadResults:
     # Returned if no matches for the uploaded functions were found.
     NO_MATCHES_FOUND = 14
 
+def clean_params(params):
+    for param in params:
+        for k, v in param.items():
+            if type(v) == type(u""):
+                param[k] = v.encode("ascii", "ignore")
+    
 def download_regular_function(ea):
     """ Downloads information about the regular function at the given ea
     """
@@ -985,8 +996,9 @@ def download_regular_function(ea):
     try:
         rpc_srv = xmlrpclib.ServerProxy(uri, allow_none=True)
         response = rpc_srv.download(parameters)
-    except:
+    except Exception, e:
         print "Error: Could not connect to BinCrowd server"
+        print e
         return (DownloadReturn.COULDNT_CONNECT_TO_SERVER, None)
         
     if response in [
@@ -1014,9 +1026,11 @@ def download_regular_function(ea):
         return (DownloadReturn.NO_MATCHES_FOUND, None)
         
     try:
-        (params, methodname) = xmlrpclib.loads(response)
+        (params, methodname) = xmlrpclib.loads(response.encode("utf-8"))
+        clean_params(params)
         return (DownloadReturn.SUCCESS, params)
-    except:
+    except Exception, e:
+        print e
         print response
         return (DownloadReturn.COULDNT_RETRIEVE_DATA, None)
         
