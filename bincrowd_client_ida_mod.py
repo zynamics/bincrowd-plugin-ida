@@ -3,14 +3,12 @@ import hashlib
 import time
 import sys
 import os
-#from bincrowd_client_common import *
 from function_selection_dialog import *
 from datetime import datetime
-import xmlrpclib #import dumps, loads, ServerProxy
+import xmlrpclib
 from idaapi import Choose2
 
-DEBUG = True
-SHOWSKIPPED = True
+DEBUG = False
 
 """
 BINCROWD PARAMETERS
@@ -22,6 +20,10 @@ UPLOADALLHOTKEY = "Ctrl-3"
 DOWNLOADALLHOTKEY = "Ctrl-4"
 
 SCRIPT_DIRECTORY = "C:/programme/ida56/bincrowd-plugin-ida"
+
+def debug_print(string):
+    if DEBUG:
+        print string
 
 class FunctionSelectionDialog(Choose2):
     def __init__(self, title, items):
@@ -436,8 +438,7 @@ def edges_array_to_dict(e):
     return edges
 
 def read_config_file():
-    if DEBUG:
-        print "Reading configuration file"
+    debug_print("Reading configuration file")
     
     directory = os.path.dirname(sys.argv[0])
     
@@ -446,9 +447,8 @@ def read_config_file():
     
     configuration_file = directory + "/bincrowd.cfg"
     
-    if DEBUG:
-        print "Determined script directory: %s" % directory
-        print "Determined configuration file : %s" % configuration_file
+    debug_print("Determined script directory: %s" % directory)
+    debug_print("Determined configuration file : %s" % configuration_file)
 
     try:
         config_file = open(configuration_file, "r")
@@ -473,7 +473,65 @@ class UploadReturn:
     COULDNT_CONNECT_TO_SERVER = 7
     COULDNT_UPLOAD_DATA = 8
     NO_FUNCTION_AT_ADDRESS = 9
+    INCOMPLETE_DATA = 10
+    INVALID_VERSION_NUMBER = 11
+    USER_NOT_AUTHENTICATED = 12
         
+class UploadResults:
+    """ Contains all possible return values of the upload function.
+    """
+    
+    # Returned if the 'version' argument was not provided by the client.
+    MISSING_ARGUMENT_VERSION = 1
+    
+    # Returned if the 'username' argument was not provided by the client.
+    MISSING_ARGUMENT_USERNAME = 2
+    
+    # Returned if the 'password' argument was not provided by the client.
+    MISSING_ARGUMENT_PASSWORD = 3
+    
+    # Returned if the 'name' argument was not provided by the client.
+    MISSING_ARGUMENT_FUNCTION_NAME = 4
+    
+    # Returned if the 'prime_product' argument was not provided by the client.
+    MISSING_ARGUMENT_PRIME_PRODUCT = 5
+    
+    # Returned if the 'edges' argument was not provided by the client.
+    MISSING_ARGUMENT_EDGES = 6
+    
+    # Returned if any of the edge arguments lack the 'indegree_source' attribute.
+    MISSING_ARGUMENT_EDGE_INDEGREE_SOURCE = 7
+    
+    # Returned if any of the edge arguments lack the 'outdegree_source' attribute.
+    MISSING_ARGUMENT_EDGE_OUTDEGREE_SOURCE = 8
+    
+    # Returned if any of the edge arguments lack the 'indegree_target' attribute.
+    MISSING_ARGUMENT_EDGE_INDEGREE_TARGET = 9
+    
+    # Returned if any of the edge arguments lack the 'outdegree_target' attribute.
+    MISSING_ARGUMENT_EDGE_OUTDEGREE_TARGET = 10
+    
+    # Returned if any of the edge arguments lack the 'topological_order_source' attribute.
+    MISSING_ARGUMENT_EDGE_TOPOLOGICAL_ORDER_SOURCE = 11
+    
+    # Returned if any of the edge arguments lack the 'topological_order_target' attribute.
+    MISSING_ARGUMENT_EDGE_TOPOLOGICAL_ORDER_TARGET = 12
+    
+    # Returned if the file_information argument lacks the 'hash_md5' attribute.
+    MISSING_ARGUMENT_MD5_HASH = 13
+    
+    # Returned if client and server versions are incompatible.
+    INVALID_VERSION_NUMBER = 14
+    
+    # Returned if the provided login credentials could not be used to authenticate the user.
+    USER_NOT_AUTHENTICATED = 15
+    
+    # Returned if a new function was added to the database.
+    ADDED_NEW_FUNCTION = 16
+    
+    # Returned if an existing function was updated.
+    UPDATED_EXISTING_FUNCTION = 17
+
 def get_frame_information(ea):
     """
     This function returns a tuple of local variables of a stack frame and
@@ -509,8 +567,7 @@ def get_frame_information(ea):
         description = idc.GetMemberComment(frame, start, True) \
             or idc.GetMemberComment(frame, start, False) #repeatable/non-repeatable
         
-        if DEBUG:
-            print "%s: %d %08X" % (name, size, flag)
+        debug_print("%s: %d %08X" % (name, size, flag))
         
         start += size
         
@@ -524,6 +581,8 @@ def get_frame_information(ea):
     return (local_variables, arguments)
 
 def get_demangled_name(ea):
+    """ Gets the name of the function at address ea and demangles it.
+    """
     name = Demangle(idc.GetFunctionName(ea), idc.GetLongPrm(INF_SHORT_DN))
     if not name:
         name = idc.GetFunctionName(ea)
@@ -546,7 +605,28 @@ def get_imported_function(imported_functions, ea):
                 return (idaapi.get_import_module_name(index), name)
 
     return None
+    
+def get_file_hashes():
+    md5 = idc.GetInputMD5().lower()
+    sha1 = None
+    sha256 = None
+    filepath = idc.GetInputFilePath()
+    if os.path.exists(filepath) and os.path.isfile(filepath):
+        f = file(filepath, 'rb')
+        data = f.read()
+        f.close()
+        sha1 = hashlib.sha1(data).hexdigest().lower()
+        sha256 = hashlib.sha256(data).hexdigest().lower()    
 
+    return md5, sha1, sha256
+
+def get_processor_name(inf):
+    null_idx = inf.procName.find(chr(0))
+    if null_idx > 0:
+        return inf.procName[:null_idx]
+    else:
+        return inf.procName
+    
 def bincrowd_upload(ea=None):
     uri, user, password = read_config_file()
     
@@ -563,84 +643,72 @@ def bincrowd_upload(ea=None):
         print "No function at address %X" % ea
         return UploadReturn.NO_FUNCTION_AT_ADDRESS
 
-    inf = idaapi.get_inf_structure()
-
     name = get_demangled_name(fn.startEA)
     
-    print "0x%X: Submitting function %s" % (ea, name)
+    print "0x%X: Uploading function %s" % (ea, name)
     
     if idaapi.has_dummy_name(idaapi.getFlags(fn.startEA)):
-        if SHOWSKIPPED:
-            print "0x%X: '%s' was not uploaded because it has an auto-generated name." % (fn.startEA, name)
+        print "0x%X: '%s' was not uploaded because it has an auto-generated name." % (fn.startEA, name)
         return UploadReturn.SKIPPED_AUTO_GENERATED
 
     try:
-        p = proxyGraph( fn.startEA )
-        number_of_nodes = len(p.get_nodes())
-        e = extract_edge_tuples_from_graph( p )
+        p = proxyGraph(fn.startEA)
+        e = extract_edge_tuples_from_graph(p)
     except Exception, e:
         print "0x%X: '%s' was not uploaded because there was a local error in the edge list." % (fn.startEA, name)
-        return UploadReturn.SKIPPED_AUTO_GENERATED
+        return UploadReturn.SKIPPED_INTERNAL_ERROR
+
     if not e:
         print "0x%X: '%s' was not uploaded because it is too small." % (fn.startEA, name)
         return UploadReturn.SKIPPED_TOO_SMALL
 
     edges = edges_array_to_dict(e)
     prime = calculate_prime_product_from_graph(fn.startEA)
+    number_of_nodes = len(p.get_nodes())
     
-    description = idaapi.get_func_cmt(fn, True) \
-                or idaapi.get_func_cmt(fn, False) #repeatable/non-repeatable
+    #repeatable/non-repeatable
+    description = idaapi.get_func_cmt(fn, True) or idaapi.get_func_cmt(fn, False)
+
+    md5, sha1, sha256 = get_file_hashes()
     
-    md5 = idc.GetInputMD5().lower()
-    sha1 = None
-    sha256 = None
-    filepath = idc.GetInputFilePath()
-    if os.path.exists(filepath) and os.path.isfile(filepath):
-        f = file(filepath, 'rb')
-        data = f.read()
-        f.close()
-        sha1 = hashlib.sha1(data).hexdigest().lower()
-        sha256 = hashlib.sha256(data).hexdigest().lower()    
-
-    null_idx = inf.procName.find(chr(0))
-    if null_idx > 0:
-        processor = inf.procName[:null_idx]
-    else:
-        processor = inf.procName
-
+    inf = idaapi.get_inf_structure()
+    processor = get_processor_name(inf)
+    
     (local_variables, arguments) = get_frame_information(ea)
         
-    stackFrame = ( local_variables, arguments )
-    
+    stackFrame = (local_variables, arguments)
+
     # Handle optional parameters.
     functionInformation = {
-                'base_address'             : idaapi.get_imagebase(),
-                'rva'                     : fn.startEA - idaapi.get_imagebase(),     
-                'processor'               : processor,
-                'operating_system'         : '%d (index defined in libfuncs.hpp?)'%inf.ostype,
+                'base_address'              : idaapi.get_imagebase(),
+                'rva'                       : fn.startEA - idaapi.get_imagebase(),     
+                'processor'                 : processor,
+                'operating_system'          : '%d (index defined in libfuncs.hpp?)' % inf.ostype,
                 'operating_system_version'  : '',
-                'language'                : idaapi.get_compiler_name(inf.cc.id),
+                'language'                  : idaapi.get_compiler_name(inf.cc.id),
                 'number_of_nodes'           : "%d" % number_of_nodes,
-                'frame_size'               : fn.frsize,
-                'ida_signature'            : ''
+                'frame_size'                : fn.frsize,
+                'ida_signature'             : ''
                 }
-
 
     fileInformation = {
                 'hash_md5'                 : md5,
                 'hash_sha1'                : sha1, 
                 'hash_sha256'              : sha256, 
-                'name'                    : idc.GetInputFile(),
-                'description'             : '' #str NOTEPAD netblob?
+                'name'                     : idc.GetInputFile(),
+                'description'              : '' #str NOTEPAD netblob?
                 }
-    
     parameters = {
-                 'username':user, 'password':password, 'version':CLIENTVERSION,
-                 'name':name, 'description':description,                                
-                 'prime_product':'%d'%prime, 'edges':edges, 
-                 'function_information':functionInformation,                                 
-                 'file_information':fileInformation,
-                 'stack_frame':stackFrame
+                 'username'              : user,
+                 'password'              : password,
+                 'version'               : CLIENTVERSION,
+                 'name'                  : name,
+                 'description'           :description,
+                 'prime_product'         : '%d' % prime,
+                 'edges'                 : edges, 
+                 'function_information'  : functionInformation,                                 
+                 'file_information'      : fileInformation,
+                 'stack_frame'           : stackFrame
                  }
     
     try:
@@ -655,16 +723,53 @@ def bincrowd_upload(ea=None):
         print "Error: Could not upload data"
         return (UploadReturn.COULDNT_UPLOAD_DATA, None)
         
-    print "0x%X: '%s' %s." % (fn.startEA, name, response)
-    
-    if response == "Added new function":
+    if response in [
+        UploadResults.MISSING_ARGUMENT_VERSION,
+        UploadResults.MISSING_ARGUMENT_USERNAME,
+        UploadResults.MISSING_ARGUMENT_PASSWORD,
+        UploadResults.MISSING_ARGUMENT_FUNCTION_NAME,
+        UploadResults.MISSING_ARGUMENT_PRIME_PRODUCT,
+        UploadResults.MISSING_ARGUMENT_EDGES,
+        UploadResults.MISSING_ARGUMENT_EDGE_INDEGREE_SOURCE,
+        UploadResults.MISSING_ARGUMENT_EDGE_OUTDEGREE_SOURCE,
+        UploadResults.MISSING_ARGUMENT_EDGE_INDEGREE_TARGET,
+        UploadResults.MISSING_ARGUMENT_EDGE_OUTDEGREE_TARGET,
+        UploadResults.MISSING_ARGUMENT_EDGE_TOPOLOGICAL_ORDER_SOURCE,
+        UploadResults.MISSING_ARGUMENT_EDGE_TOPOLOGICAL_ORDER_TARGET,
+        UploadResults.MISSING_ARGUMENT_MD5_HASH
+        ]:
+        print "Error: Uploaded incomplete data (Error code %d)" % response
+        return UploadReturn.INCOMPLETE_DATA
+    elif response == UploadResults.INVALID_VERSION_NUMBER:
+        print "Error: Client uploaded an invalid version number"
+        return UploadReturn.INVALID_VERSION_NUMBER
+    elif response == UploadResults.USER_NOT_AUTHENTICATED:
+        print "Error: User could not be authenticated by the server"
+        return UploadReturn.USER_NOT_AUTHENTICATED
+    elif response == UploadResults.ADDED_NEW_FUNCTION:
+        print "Added new function"
         return UploadReturn.UPLOAD_SUCCESS_ADDED
-    elif response == "Changed existing function":
+    elif response == UploadResults.UPDATED_EXISTING_FUNCTION:
+        print "Updated existing function"
         return UploadReturn.UPLOAD_SUCCESS_CHANGED
     else:
         print "Error: Unknown server reply ", response
         return UploadReturn.UNKNOWN_SERVER_REPLY
 
+def is_showstopper_upload_return_value(ret_val):
+    """ Determines whether an upload return value is important enough
+        to completely stop and 'Upload All' operation.
+    """
+    return ret_val in [
+        UploadReturn.COULDNT_READ_CONFIG_FILE,
+        UploadReturn.COULDNT_CONNECT_TO_SERVER,
+        UploadReturn.COULDNT_UPLOAD_DATA,
+        UploadReturn.NO_FUNCTION_AT_ADDRESS,
+        UploadReturn.INCOMPLETE_DATA,
+        UploadReturn.INVALID_VERSION_NUMBER,
+        UploadReturn.USER_NOT_AUTHENTICATED
+    ]
+        
 def bincrowd_upload_all():
     upload_stats = [0, 0, 0, 0, 0, 0, 0]
     
@@ -672,11 +777,11 @@ def bincrowd_upload_all():
     
     for function_ea in functions:
         name = idc.GetFunctionName(function_ea)
-        if DEBUG:
-        	print "Uploading %s at " % name, datetime.now()
+        
         ret_val = bincrowd_upload(function_ea)
         
-        if ret_val in (UploadReturn.COULDNT_READ_CONFIG_FILE, UploadReturn.COULDNT_CONNECT_TO_SERVER,  UploadReturn.COULDNT_UPLOAD_DATA):
+        if is_showstopper_upload_return_value(ret_val):
+            print "Stopping upload of all functions"
             return
         
         upload_stats[ret_val] += 1
@@ -982,8 +1087,7 @@ def bincrowd_download_all():
     
         name = idc.GetFunctionName(function_ea)
         
-        if DEBUG:
-            print "Downloading %s at " % name, datetime.now()
+        debug_print("Downloading %s at " % name, datetime.now())
         
         (error_code, params) = download_without_application(function_ea)
         result[function_ea] = (error_code, params)
