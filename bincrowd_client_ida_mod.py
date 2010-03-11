@@ -7,6 +7,7 @@ from function_selection_dialog import *
 from datetime import datetime
 import xmlrpclib
 from idaapi import Choose2
+import idautils
 
 DEBUG = False
 
@@ -262,9 +263,50 @@ def extract_edge_tuples_from_graph( flowgraph ):
             len(edge.target.parents), \
             len(edge.target.children), \
             node_to_layer_index[ edge.source ], \
-            node_to_layer_index[ edge.target ] )
+            node_to_layer_index[ edge.target ],
+            edge.source.prime_product,
+            edge.source.function_calls,
+            edge.target.prime_product,
+            edge.target.function_calls
+        )
         result_tuples.append( sig )
     return result_tuples
+
+def get_list_of_node_mnemonics(node):
+    """ Returns a list of all mnemonics of a node.
+    """
+    start = node.startEA
+    end = node.endEA
+    
+    mnemonics = []
+    
+    while start < end:
+        mnemonic = idc.GetMnem( start )
+        if mnemonic:
+            mnemonics.append( mnemonic )
+        start = start + 1
+    
+    return mnemonics
+    
+def calc_prime_product(node):
+    """ Calculates the prime product for the given node.
+    """
+    return get_prime(get_list_of_node_mnemonics(node))
+    
+def count_function_calls(node):
+    start = node.startEA
+    end = node.endEA
+    
+    calls = 0
+    
+    while start < end:
+        for xref in XrefsFrom(start, 0):
+            if xref.type in [16, 17]:
+                calls = calls + 1
+        
+        start = start + 1
+        
+    return calls
 
 class proxyGraphNode:
     """
@@ -274,6 +316,8 @@ class proxyGraphNode:
     def __init__( self, id, parentgraph ):
         self.parent = parentgraph
         self.id = id
+        self.prime_product = calc_prime_product(parentgraph.graph[id])
+        self.function_calls = count_function_calls(parentgraph.graph[id])
     def get_children( self ):
         return self.parent.get_children( self.id )
     def get_parents( self ):
@@ -362,7 +406,7 @@ class proxyGraph:
     nodes = property( get_nodes, set_nodes )
     edges = property( get_edges, set_edges )
 
-def get_list_of_mnemonics(address):
+def get_list_of_function_mnemonics(address):
     """ Returns a list of all mnemonics found in a function.
     """
     fniter = idaapi.func_item_iterator_t(idaapi.get_func(address))
@@ -379,7 +423,7 @@ def get_list_of_mnemonics(address):
 def calculate_prime_product_from_graph(address):
     """ Calculates the prime product for the function at the given address.
     """
-    return get_prime(get_list_of_mnemonics(address))
+    return get_prime(get_list_of_function_mnemonics(address))
 
 """
 BINCROWD RPC FUNCTIONS
@@ -388,17 +432,18 @@ def edges_array_to_dict(e):
     edges = []
     for tup in e:
         edges.append(
-               {'indegree_source'          : tup[0],
-                'outdegree_source'         : tup[1],
-                'indegree_target'          : tup[2],
-                'outdegree_target'         : tup[3],
-                'topological_order_source'  : tup[4],
-                'topological_order_target'  : tup[5]} )
-                # Optional:
-                #'sourcePrime'             : 0,
-                #'sourceCallNum'           : 0,
-                #'targetPrime'             : 0,
-                #'targetCallNum'           : 0})
+               {'indegree_source'            : tup[0],
+                'outdegree_source'           : tup[1],
+                'indegree_target'            : tup[2],
+                'outdegree_target'           : tup[3],
+                'topological_order_source'   : tup[4],
+                'topological_order_target'   : tup[5],
+                'source_prime'               : "%d" % tup[6],
+                'source_call_num'            : tup[7],
+                'target_prime'               : "%d" % tup[8],
+                'target_call_num'            : tup[9]
+            })
+                
     return edges
 
 def read_config_file():
@@ -590,10 +635,11 @@ def get_processor_name(inf):
         return inf.procName[:null_idx]
     else:
         return inf.procName
-    
+        
 def bincrowd_upload(ea=None):
     """ Uploads information for the function at the given ea.
     """
+    
     uri, user, password = read_config_file()
     
     if user == None:
@@ -602,7 +648,7 @@ def bincrowd_upload(ea=None):
 
     if not ea:
         ea = here()
-
+        
     fn = idaapi.get_func(ea)
     
     if not fn:
@@ -669,7 +715,7 @@ def bincrowd_upload(ea=None):
                  'password'              : password,
                  'version'               : CLIENTVERSION,
                  'name'                  : name,
-                 'description'           :description,
+                 'description'           : description,
                  'prime_product'         : '%d' % prime,
                  'edges'                 : edges, 
                  'function_information'  : functionInformation,                                 
