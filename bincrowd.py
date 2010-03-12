@@ -1244,7 +1244,23 @@ def apply_all_perfect_matches(result):
             for param in params:
                 if param['match_degree'] == 1:
                     set_information(ea, param)
-    
+
+def calculate_match_quality(result):
+    match_quality = { }
+
+    for ea, (error_code, params) in result.items():
+        if error_code == DownloadReturn.SUCCESS and len(params) > 0:
+            for param in params:
+                if param['number_of_nodes'] > 7:
+                    file = param['file']
+                    
+                    if not match_quality.has_key(file):
+                        match_quality[file] = 0
+                        
+                    match_quality[file] = match_quality[file] + 1
+                    
+    return sorted(match_quality.items(), key=lambda x: x[1], reverse=True)
+                    
 def bincrowd_download_all():
     """
     Downloads information for all functions of the given file and lets
@@ -1278,6 +1294,15 @@ def bincrowd_download_all():
         else:
             pass # Do some error handling in the future
     
+    match_quality = calculate_match_quality(result)
+    
+    try:
+        print "Files with most matches:"
+        for (file, match) in match_quality:
+            print "%s: %d" % (file, match)
+    except Exception, e:
+        print e
+            
     while True:
         # Let the user pick for what target function he wants to copy information
         all_functions_information = get_information_all_functions(result)
