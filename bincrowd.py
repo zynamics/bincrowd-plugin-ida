@@ -1219,7 +1219,7 @@ def get_display_information_all_functions(information, perfect_match_count):
     chooser2 dialog.
     """
     
-    return [["Apply all perfect matches", "%d" % perfect_match_count]] + [[get_function_name(ea), "%d" % count] for [ea, count] in information]
+    return [["Apply all top matches", "%d" % perfect_match_count]] + [[get_function_name(ea), "%d" % count] for [ea, count] in information]
     
 def get_single_file_information(result, selected_ea):
     return [r for r in result[selected_ea][1]]
