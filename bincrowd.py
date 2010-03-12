@@ -3,7 +3,6 @@ import hashlib
 import time
 import sys
 import os
-from function_selection_dialog import *
 from datetime import datetime
 import xmlrpclib
 from idaapi import Choose2
@@ -15,7 +14,7 @@ DEBUG = False
 """
 BINCROWD PARAMETERS
 """
-CLIENTVERSION = "0.1"
+CLIENTVERSION = "1"
 UPLOADHOTKEY = "Ctrl-1"
 DOWNLOADHOTKEY = "Ctrl-2"
 UPLOADALLHOTKEY = "Ctrl-3"
@@ -1213,18 +1212,39 @@ def get_function_name(ea):
     else:
         return idc.GetFunctionName(ea)
      
-def get_display_information_all_functions(information):
+def get_display_information_all_functions(information, perfect_match_count):
     """
     Converts information returned from get_information_all_functions and
     turns that information into something that can be displayed in a
     chooser2 dialog.
     """
     
-    return [[get_function_name(ea), "%d" % count] for [ea, count] in information]
+    return [["Apply all perfect matches", "%d" % perfect_match_count]] + [[get_function_name(ea), "%d" % count] for [ea, count] in information]
     
 def get_single_file_information(result, selected_ea):
     return [r for r in result[selected_ea][1]]
 
+def count_perfect_matches(result):
+    perfect_match_count = 0
+    
+    for ea, (error_code, params) in result.items():
+        if error_code == DownloadReturn.SUCCESS and len(params) > 0:
+            for param in params:
+                if param['match_degree'] == 1:
+                    perfect_match_count = perfect_match_count + 1
+                    break
+            
+    return perfect_match_count
+    
+def apply_all_perfect_matches(result):
+    # TODO: There can be many perfect matches returned for one function
+    #       Find a way to determine a priority for them.
+    for ea, (error_code, params) in result.items():
+        if error_code == DownloadReturn.SUCCESS and len(params) > 0:
+            for param in params:
+                if param['match_degree'] == 1:
+                    set_information(ea, param)
+    
 def bincrowd_download_all():
     """
     Downloads information for all functions of the given file and lets
@@ -1261,25 +1281,32 @@ def bincrowd_download_all():
     while True:
         # Let the user pick for what target function he wants to copy information
         all_functions_information = get_information_all_functions(result)
-        all_functions_dialog = AllFunctionsSelectionDialog("All Functions", get_display_information_all_functions(all_functions_information))
+        perfect_match_count = count_perfect_matches(result)
+        all_functions_dialog = AllFunctionsSelectionDialog("All Functions", get_display_information_all_functions(all_functions_information, perfect_match_count))
         selected_function = all_functions_dialog.Show(True)
         
         if selected_function == -1:
             break
-
-        # Let the user pick for what downloaded information he wants to use for his target function
-        selected_ea = all_functions_information[selected_function][0]
             
-        idc.Jump(selected_ea)
-
-        nodes, edges = get_graph_data(selected_ea)
+        if selected_function == 0:
+            apply_all_perfect_matches(result)
+        else:
+            # Correct for the "Apply All" row
+            selected_function = selected_function - 1
+        
+            # Let the user pick for what downloaded information he wants to use for his target function
+            selected_ea = all_functions_information[selected_function][0]
             
-        function_information = get_single_file_information(result, selected_ea)
-        function_selection_dialog = FunctionSelectionDialog("Retrieved Function Information", formatresults(function_information, nodes, edges))
-        selected_row = function_selection_dialog.Show(True)
+            idc.Jump(selected_ea)
+
+            nodes, edges = get_graph_data(selected_ea)
+            
+            function_information = get_single_file_information(result, selected_ea)
+            function_selection_dialog = FunctionSelectionDialog("Retrieved Function Information", formatresults(function_information, nodes, edges))
+            selected_row = function_selection_dialog.Show(True)
              
-        if selected_row != -1:
-            set_information(selected_ea, function_information[selected_row])
+            if selected_row != -1:
+                set_information(selected_ea, function_information[selected_row])
     
             
 """
