@@ -585,7 +585,7 @@ def get_frame_information(ea):
             current = arguments
             continue
         
-        current.append({'name' : name, 'description' : description, 'size' : size, 'flag' : flag})
+        current.append({'name' : name, 'description' : description, 'size' : size})
 
     return (local_variables, arguments)
 
