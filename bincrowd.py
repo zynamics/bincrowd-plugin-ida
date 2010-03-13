@@ -829,88 +829,42 @@ class DownloadReturn:
     NO_MATCHES_FOUND = 8
     NO_FUNCTION_AT_ADDRESS = 9
     
-class DownloadImportedResults:
-    """ Contains all possible return values of the download imported function.
+def get_import_function_download_params(module, name):
+    """ Returns an argument map for an imported function
     """
-    
-    # Returned if the 'version' argument was not provided by the client.
-    MISSING_ARGUMENT_VERSION = 1
-    
-    # Returned if the 'username' argument was not provided by the client.
-    MISSING_ARGUMENT_USERNAME = 2
-    
-    # Returned if the 'password' argument was not provided by the client.
-    MISSING_ARGUMENT_PASSWORD = 3
-    
-    # Returned if the 'module' argument was not provided by the client.
-    MISSING_ARGUMENT_MODULE = 4
-    
-    # Returned if the 'name' argument was not provided by the client.
-    MISSING_ARGUMENT_FUNCTION_NAME = 5
-    
-    # Returned if client and server versions are incompatible.
-    INVALID_VERSION_NUMBER = 6
-    
-    # Returned if the provided login credentials could not be used to authenticate the user.
-    USER_NOT_AUTHENTICATED = 7
-    
-    # Returned if no matches for the uploaded functions were found.
-    NO_MATCHES_FOUND = 8
+    return {'module' : module, 'name' : name }
 
-def download_imported_function(module, name):
-    """ Downloads information about an imported function
+def get_regular_function_download_params(fn):
+    """ Returns an argument map for a regular function
     """
+    p = proxyGraph(fn.startEA)
+    inf = idaapi.get_inf_structure()
 
-    print "Downloading information for %s!%s" % (module, name)
+    e = extract_edge_tuples_from_graph(p)
+    edges = edges_array_to_dict(e)
+    
+    prime = calculate_prime_product_from_graph(fn.startEA)
 
-    uri, user, password = read_config_file()
+    return {'prime_product' : '%d' % prime, 'edges' : edges }
+    
+def get_download_params(ea):
+    """ Returns an argument for the function at the given address.
+        If there is no function at the given address, None is returned.
+    """
+    fill_imported_functions_if_necessary()
+    
+    imported_function = get_imported_function(imported_functions, ea)
+    
+    if imported_function:
+        return get_import_function_download_params(*imported_function)
         
-    try:
-        rpc_srv = xmlrpclib.ServerProxy(uri, allow_none=True)
-    except:
-        print "Error: Could not connect to BinCrowd server"
-        return (DownloadReturn.COULDNT_CONNECT_TO_SERVER, None)
-        
-    parameters = {
-                 'username' : user,
-                 'password' : password,
-                 'version'  : CLIENTVERSION,
-                 'module'   : module,
-                 'name'     : name
-                 }
-                 
-    try:
-        response = rpc_srv.download_imported(parameters)
-    except:
-        print "Error: Could not download data"
-        return (DownloadReturn.COULDNT_DOWNLOAD_DATA, None)
-
-    if response in [
-        DownloadImportedResults.MISSING_ARGUMENT_VERSION,
-        DownloadImportedResults.MISSING_ARGUMENT_USERNAME,
-        DownloadImportedResults.MISSING_ARGUMENT_PASSWORD,
-        DownloadImportedResults.MISSING_ARGUMENT_MODULE,
-        DownloadImportedResults.MISSING_ARGUMENT_FUNCTION_NAME
-    ]:
-        print "Error: Uploaded incomplete data (Error code %d)" % response
-        return (DownloadReturn.INCOMPLETE_DATA, None)
-    elif response == DownloadImportedResults.INVALID_VERSION_NUMBER:
-        print "Error: Client uploaded an invalid version number"
-        return (DownloadReturn.INVALID_VERSION_NUMBER, None)
-    elif response == DownloadImportedResults.USER_NOT_AUTHENTICATED:
-        print "Error: User could not be authenticated by the server"
-        return (DownloadReturn.USER_NOT_AUTHENTICATED, None)
-    elif response == DownloadImportedResults.NO_MATCHES_FOUND:
-        return (DownloadReturn.NO_MATCHES_FOUND, None)
-        
-    try:
-        (params, methodname) = xmlrpclib.loads(response)
-        clean_params(params)
-        return (DownloadReturn.SUCCESS, params)
-    except:
-        print response
-        return (DownloadReturn.COULDNT_RETRIEVE_DATA, None)
-
+    fn = idaapi.get_func(ea)
+    
+    if fn:
+        return get_regular_function_download_params(fn)
+     
+    return None
+    
 class DownloadResults:
     """ Contains all possible return values of the download function.
     """
@@ -958,89 +912,17 @@ class DownloadResults:
     NO_MATCHES_FOUND = 14
 
 def clean_params(params):
+    return
+    print params
     for param in params:
-        for k, v in param.items():
-            if type(v) == type(u""):
-                param[k] = idaapi.scr2idb(v.encode("iso-8859-1", "ignore"))
-            if type(v) == type([]):
-                clean_params(v[0])
-                clean_params(v[1])
-    
-def download_regular_function(ea):
-    """ Downloads information about the regular function at the given ea
-    """
-    uri, user, password = read_config_file()
-    
-    if user == None:
-    	print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
-    	return (DownloadReturn.COULDNT_READ_CONFIG_FILE, None)
-    	
-    fn = idaapi.get_func(ea)
-    
-    if not fn:
-        return (DownloadReturn.NO_FUNCTION_AT_ADDRESS, None)
-    
-    p = proxyGraph(fn.startEA)
-    inf = idaapi.get_inf_structure()
+        for function in param:
+            for k, v in function.items():
+                if type(v) == type(u""):
+                    param[k] = idaapi.scr2idb(v.encode("iso-8859-1", "ignore"))
+                if type(v) == type([]):
+                    clean_params(v[0])
+                    clean_params(v[1])
 
-    print "Downloading information for %s" % get_function_name(ea)
-
-    e = extract_edge_tuples_from_graph(p)
-    edges = edges_array_to_dict(e)
-    
-    if not edges:
-        return (DownloadReturn.FUNCTION_TOO_SMALL, None)
-    
-    prime = calculate_prime_product_from_graph(fn.startEA)
-
-    parameters = {
-                 'username'       : user,
-                 'password'       : password,
-                 'version'        : CLIENTVERSION,
-                 'prime_product'  : '%d' % prime,
-                 'edges'          : edges, 
-                 }
-    try:
-        rpc_srv = xmlrpclib.ServerProxy(uri, allow_none=True)
-        response = rpc_srv.download(parameters)
-    except Exception, e:
-        print "Error: Could not connect to BinCrowd server"
-        print e
-        return (DownloadReturn.COULDNT_CONNECT_TO_SERVER, None)
-        
-    if response in [
-        DownloadResults.MISSING_ARGUMENT_VERSION,
-        DownloadResults.MISSING_ARGUMENT_USERNAME,
-        DownloadResults.MISSING_ARGUMENT_PASSWORD,
-        DownloadResults.MISSING_ARGUMENT_PRIME_PRODUCT,
-        DownloadResults.MISSING_ARGUMENT_EDGES,
-        DownloadResults.MISSING_ARGUMENT_EDGE_INDEGREE_SOURCE,
-        DownloadResults.MISSING_ARGUMENT_EDGE_OUTDEGREE_SOURCE,
-        DownloadResults.MISSING_ARGUMENT_EDGE_INDEGREE_TARGET,
-        DownloadResults.MISSING_ARGUMENT_EDGE_OUTDEGREE_TARGET,
-        DownloadResults.MISSING_ARGUMENT_EDGE_TOPOLOGICAL_ORDER_SOURCE,
-        DownloadResults.MISSING_ARGUMENT_EDGE_TOPOLOGICAL_ORDER_TARGET
-    ]:
-        print "Error: Uploaded incomplete data (Error code %d)" % response
-        return (DownloadReturn.INCOMPLETE_DATA, None)
-    elif response == DownloadResults.INVALID_VERSION_NUMBER:
-        print "Error: Client uploaded an invalid version number"
-        return (DownloadReturn.INVALID_VERSION_NUMBER, None)
-    elif response == DownloadResults.USER_NOT_AUTHENTICATED:
-        print "Error: User could not be authenticated by the server"
-        return (DownloadReturn.USER_NOT_AUTHENTICATED, None)
-    elif response == DownloadResults.NO_MATCHES_FOUND:
-        return (DownloadReturn.NO_MATCHES_FOUND, None)
-        
-    try:
-        (params, methodname) = xmlrpclib.loads(response.encode("utf-8"))
-        clean_params(params)
-        return (DownloadReturn.SUCCESS, params)
-    except Exception, e:
-        print e
-        print response
-        return (DownloadReturn.COULDNT_RETRIEVE_DATA, None)
-        
 imported_functions = []
 
 def imported_functions_callback(ea, name, ord):
@@ -1062,20 +944,6 @@ def fill_imported_functions_if_necessary():
     if len(imported_functions) == 0:
         fill_imported_functions()
             
-def download_without_application(ea):
-    """ Downloads information about the function at the given ea without applying
-        that information to the IDB file.
-    """
-    fill_imported_functions_if_necessary()
-
-    imported_function = get_imported_function(imported_functions, ea)
-    
-    if imported_function:
-        (module, name) = imported_function
-        return download_imported_function(module, name)
-    else:
-        return download_regular_function(ea)
- 
 def set_normal_information(information, fn):
     """ Assigns downloaded information to the given function.
     """
@@ -1169,14 +1037,13 @@ def set_information(ea, information):
         set_import_information(information, ea)
     else:
         set_normal_information(information, idaapi.get_func(ea))
-        
-def bincrowd_download(ea = None):
-    """ Downloads information for the function at the given ea.
-    """
-    if not ea:
-        ea = here()
 
-    (error_code, params) = download_without_application(ea)
+def bincrowd_download_internal(ea):
+    functions = get_download_params(ea)
+    
+    (error_code, params) = download_list([functions])
+    
+    params = params[0]
     
     if error_code != DownloadReturn.SUCCESS:
     	return
@@ -1192,13 +1059,24 @@ def bincrowd_download(ea = None):
     
     if selected_row >= 0:
         set_information(ea, params[selected_row])
+                
+def bincrowd_download(ea = None):
+    """ Downloads information for the function at the given ea.
+    """
+    
+    if not ea:
+        ea = here()
 
-def get_information_all_functions(result):
+    try:
+        bincrowd_download_internal(ea)
+    except Exception, e:
+        print e
+
+def get_information_all_functions(eas, result):
     result_list = []
     
-    for ea, (error_code, params) in result.items():
-        if error_code == DownloadReturn.SUCCESS and len(params) > 0:
-            result_list.append([ea, len(params)])
+    for function_result in result:
+        result_list.append([eas[len(result_list)], len(function_result)])
     
     return sorted(result_list, lambda x, y : y[1] - x[1])
     
@@ -1221,79 +1099,134 @@ def get_display_information_all_functions(information, perfect_match_count):
     
     return [["Apply all top matches", "%d" % perfect_match_count]] + [[get_function_name(ea), "%d" % count] for [ea, count] in information]
     
-def get_single_file_information(result, selected_ea):
-    return [r for r in result[selected_ea][1]]
-
 def count_perfect_matches(result):
     perfect_match_count = 0
     
-    for ea, (error_code, params) in result.items():
-        if error_code == DownloadReturn.SUCCESS and len(params) > 0:
-            for param in params:
-                if param['match_degree'] == 1:
-                    perfect_match_count = perfect_match_count + 1
-                    break
+    for function_result in result:
+        for single_result in function_result:
+            if single_result['match_degree'] == 1:
+                perfect_match_count = perfect_match_count + 1
+                break
             
     return perfect_match_count
     
-def apply_all_perfect_matches(result):
-    # TODO: There can be many perfect matches returned for one function
-    #       Find a way to determine a priority for them.
-    for ea, (error_code, params) in result.items():
-        if error_code == DownloadReturn.SUCCESS and len(params) > 0:
-            for param in params:
-                if param['match_degree'] == 1:
-                    set_information(ea, param)
+def apply_all_perfect_matches(eas, result):
+    counter = 0
+
+    for function_result in result:
+        for single_result in function_result:
+            if single_result['match_degree'] == 1:
+                set_information(eas[counter], single_result)
+                break
+        counter = counter + 1
 
 def calculate_match_quality(result):
     match_quality = { }
 
-    for ea, (error_code, params) in result.items():
-        if error_code == DownloadReturn.SUCCESS and len(params) > 0:
-            for param in params:
-                if param['number_of_nodes'] > 7:
-                    file = param['file']
+    for function_result in result:
+        for single_result in function_result:
+            if single_result['number_of_nodes'] > 7:
+                file = single_result['file']
                     
-                    if not match_quality.has_key(file):
-                        match_quality[file] = 0
-                        
-                    match_quality[file] = match_quality[file] + 1
+                if not match_quality.has_key(file):
+                    match_quality[file] = 0
+                       
+                match_quality[file] = match_quality[file] + 1
                     
     return sorted(match_quality.items(), key=lambda x: x[1], reverse=True)
                     
-def bincrowd_download_all():
+def download_list(functions):
+
+    uri, user, password = read_config_file()
+    
+    if user == None:
+    	print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
+    	return (DownloadReturn.COULDNT_READ_CONFIG_FILE, None)
+    	
+    parameters = {
+                 'username'       : user,
+                 'password'       : password,
+                 'version'        : CLIENTVERSION,
+                 'functions'      : functions
+                 }
+    try:
+        rpc_srv = xmlrpclib.ServerProxy(uri, allow_none=True)
+        response = rpc_srv.download(parameters)
+    except Exception, e:
+        print "Error: Could not connect to BinCrowd server"
+        print e
+        return (DownloadReturn.COULDNT_CONNECT_TO_SERVER, None)
+        
+    if response in [
+        DownloadResults.MISSING_ARGUMENT_VERSION,
+        DownloadResults.MISSING_ARGUMENT_USERNAME,
+        DownloadResults.MISSING_ARGUMENT_PASSWORD,
+        DownloadResults.MISSING_ARGUMENT_PRIME_PRODUCT,
+        DownloadResults.MISSING_ARGUMENT_EDGES,
+        DownloadResults.MISSING_ARGUMENT_EDGE_INDEGREE_SOURCE,
+        DownloadResults.MISSING_ARGUMENT_EDGE_OUTDEGREE_SOURCE,
+        DownloadResults.MISSING_ARGUMENT_EDGE_INDEGREE_TARGET,
+        DownloadResults.MISSING_ARGUMENT_EDGE_OUTDEGREE_TARGET,
+        DownloadResults.MISSING_ARGUMENT_EDGE_TOPOLOGICAL_ORDER_SOURCE,
+        DownloadResults.MISSING_ARGUMENT_EDGE_TOPOLOGICAL_ORDER_TARGET
+    ]:
+        print "Error: Uploaded incomplete data (Error code %d)" % response
+        return (DownloadReturn.INCOMPLETE_DATA, None)
+    elif response == DownloadResults.INVALID_VERSION_NUMBER:
+        print "Error: Client uploaded an invalid version number"
+        return (DownloadReturn.INVALID_VERSION_NUMBER, None)
+    elif response == DownloadResults.USER_NOT_AUTHENTICATED:
+        print "Error: User could not be authenticated by the server"
+        return (DownloadReturn.USER_NOT_AUTHENTICATED, None)
+    elif response == DownloadResults.NO_MATCHES_FOUND:
+        return (DownloadReturn.NO_MATCHES_FOUND, None)
+        
+    try:
+        (params, methodname) = xmlrpclib.loads(response.encode("utf-8"))
+        clean_params(params)
+        return (DownloadReturn.SUCCESS, params)
+    except Exception, e:
+        print e
+        print response
+        return (DownloadReturn.COULDNT_RETRIEVE_DATA, None)
+        
+def download_all_internal():
     """
     Downloads information for all functions of the given file and lets
     the user choose what information he wants to accept.
     """
     
-    result = { }     # ea => (error_code, information)
-    
     fill_imported_functions_if_necessary()
+    
+    collected_params = []
+    eas = []
 
     # Download all imported functions
     for index in xrange(len(imported_functions)):
         for function_ea, name in imported_functions[index]:
-            (error_code, params) = download_without_application(function_ea)
-            result[function_ea] = (error_code, params)
-        
-            if error_code == DownloadReturn.SUCCESS:
-                for i in xrange(len(params)):
-                    file = params[i]['file']
-            else:
-                pass # Do some error handling in the future
-        
+            collected_params.append(get_download_params(function_ea))
+            eas.append(function_ea)
+            
     # Download all regular functions
     for function_ea in Functions(0, 0xFFFFFFFF):
-        (error_code, params) = download_without_application(function_ea)
-        result[function_ea] = (error_code, params)
+        fn = idaapi.get_func(function_ea)
         
-        if error_code == DownloadReturn.SUCCESS:
-            for i in xrange(len(params)):
-                file = params[i]['file']
-        else:
-            pass # Do some error handling in the future
+        if not fn:
+            continue
+            
+        params = get_download_params(function_ea)
+
+        if not params['edges']:
+            continue
+        
+        collected_params.append(params)
+        eas.append(function_ea)
+
+    (error_code, result) = download_list(collected_params)
     
+    print result
+    for r in result:
+        print r
     match_quality = calculate_match_quality(result)
     
     try:
@@ -1305,7 +1238,7 @@ def bincrowd_download_all():
             
     while True:
         # Let the user pick for what target function he wants to copy information
-        all_functions_information = get_information_all_functions(result)
+        all_functions_information = get_information_all_functions(eas, result)
         perfect_match_count = count_perfect_matches(result)
         all_functions_dialog = AllFunctionsSelectionDialog("All Functions", get_display_information_all_functions(all_functions_information, perfect_match_count))
         selected_function = all_functions_dialog.Show(True)
@@ -1314,7 +1247,7 @@ def bincrowd_download_all():
             break
             
         if selected_function == 0:
-            apply_all_perfect_matches(result)
+            apply_all_perfect_matches(eas, result)
         else:
             # Correct for the "Apply All" row
             selected_function = selected_function - 1
@@ -1326,13 +1259,18 @@ def bincrowd_download_all():
 
             nodes, edges = get_graph_data(selected_ea)
             
-            function_information = get_single_file_information(result, selected_ea)
+            function_information = result[eas.index(selected_ea)]
             function_selection_dialog = FunctionSelectionDialog("Retrieved Function Information", formatresults(function_information, nodes, edges))
             selected_row = function_selection_dialog.Show(True)
              
             if selected_row != -1:
                 set_information(selected_ea, function_information[selected_row])
-    
+
+def bincrowd_download_all():
+    try:
+        download_all_internal()
+    except Exception, e:
+        print e
             
 """
 REGISTER IDA SHORTCUTS
