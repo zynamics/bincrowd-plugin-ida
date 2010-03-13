@@ -911,17 +911,17 @@ class DownloadResults:
     # Returned if no matches for the uploaded functions were found.
     NO_MATCHES_FOUND = 14
 
-def clean_params(params):
-    return
-    print params
-    for param in params:
-        for function in param:
-            for k, v in function.items():
+def clean_results(results):
+    """ Cleans weird characters from downloaded strings.
+    """
+    for function_result in results:
+        for single_result in function_result:
+            for k, v in single_result.items():
                 if type(v) == type(u""):
-                    param[k] = idaapi.scr2idb(v.encode("iso-8859-1", "ignore"))
+                    single_result[k] = idaapi.scr2idb(v.encode("iso-8859-1", "ignore"))
                 if type(v) == type([]):
-                    clean_params(v[0])
-                    clean_params(v[1])
+                    clean_results([v[0]])
+                    clean_results([v[1]])
 
 imported_functions = []
 
@@ -1182,12 +1182,11 @@ def download_list(functions):
         return (DownloadReturn.NO_MATCHES_FOUND, None)
         
     try:
-        (params, methodname) = xmlrpclib.loads(response.encode("utf-8"))
-        clean_params(params)
-        return (DownloadReturn.SUCCESS, params)
+        (results, methodname) = xmlrpclib.loads(response.encode("utf-8"))
+        clean_results(results)
+        return (DownloadReturn.SUCCESS, results)
     except Exception, e:
         print e
-        print response
         return (DownloadReturn.COULDNT_RETRIEVE_DATA, None)
         
 def download_all_internal():
@@ -1201,12 +1200,16 @@ def download_all_internal():
     collected_params = []
     eas = []
 
+    print "Collecting imported functions: %s" % datetime.now()
+    
     # Download all imported functions
     for index in xrange(len(imported_functions)):
         for function_ea, name in imported_functions[index]:
             collected_params.append(get_download_params(function_ea))
             eas.append(function_ea)
             
+    print "Collecting regular functions: %s" % datetime.now()
+    
     # Download all regular functions
     for function_ea in Functions(0, 0xFFFFFFFF):
         fn = idaapi.get_func(function_ea)
@@ -1222,25 +1225,27 @@ def download_all_internal():
         collected_params.append(params)
         eas.append(function_ea)
 
+    print "Downloading function information: %s" % datetime.now()
+    
     (error_code, result) = download_list(collected_params)
     
-    print result
-    for r in result:
-        print r
-    match_quality = calculate_match_quality(result)
+    print "Processing downloaded information: %s" % datetime.now()
     
-    try:
-        print "Files with most matches:"
-        for (file, match) in match_quality:
-            print "%s: %d" % (file, match)
-    except Exception, e:
-        print e
-            
+    match_quality = calculate_match_quality(result)
+   
+    print "Files with most significant matches:"
+    for (file, match) in match_quality:
+        print "%s: %d" % (file, match)
+        
     while True:
         # Let the user pick for what target function he wants to copy information
         all_functions_information = get_information_all_functions(eas, result)
         perfect_match_count = count_perfect_matches(result)
-        all_functions_dialog = AllFunctionsSelectionDialog("All Functions", get_display_information_all_functions(all_functions_information, perfect_match_count))
+        display_information = get_display_information_all_functions(all_functions_information, perfect_match_count)
+        
+        print "Displaying results: %s" % datetime.now()
+    
+        all_functions_dialog = AllFunctionsSelectionDialog("All Functions", display_information)
         selected_function = all_functions_dialog.Show(True)
         
         if selected_function == -1:
@@ -1267,6 +1272,10 @@ def download_all_internal():
                 set_information(selected_ea, function_information[selected_row])
 
 def bincrowd_download_all():
+    """
+    Downloads information for all functions of the given file and lets
+    the user choose what information he wants to accept.
+    """
     try:
         download_all_internal()
     except Exception, e:
