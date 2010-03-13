@@ -272,51 +272,35 @@ def extract_edge_tuples_from_graph( flowgraph ):
         result_tuples.append( sig )
     return result_tuples
 
-def get_list_of_node_mnemonics(node):
-    """ Returns a list of all mnemonics of a node.
-    """
-    start = node.startEA
-    end = node.endEA
-    
-    mnemonics = []
-    
-    while start < end:
-        mnemonics.append(idc.GetMnem(start))
-        start = idaapi.next_head(start, end)
-    
-    return mnemonics
-    
-def calc_prime_product(node):
-    """ Calculates the prime product for the given node.
-    """
-    return get_prime(get_list_of_node_mnemonics(node))
-    
 def xrefs(ea):
     xrefs = []
     
     xref = idaapi.xrefblk_t()
-    if xref.first_from(ea, 0):
-        xrefs.append(xref)
-        while xref.next_from():
+    if xref.first_from(ea, idaapi.XREF_FAR):
+        if xref.type == 16 or xref.type == 17:
             xrefs.append(xref)
+        while xref.next_from():
+            if xref.type == 16 or xref.type == 17:
+                xrefs.append(xref)
             
     return xrefs
 
-def count_function_calls(node):
+def calculate_node_values(node):
     start = node.startEA
     end = node.endEA
     
     calls = 0
+    mnemonics = []
     
     while start < end:
         for xref in xrefs(start):
-            if xref.type in [16, 17]:
-                calls = calls + 1
+            calls = calls + 1
         
-        start = start + 1
+        mnemonics.append(idaapi.ua_mnem(start))
+        start = idaapi.next_head(start, end)
         
-    return calls
-
+    return (get_prime(mnemonics), calls)
+    
 class proxyGraphNode:
     """
         A small stub class to proxy the BinNavi node class into IDA's
@@ -325,9 +309,7 @@ class proxyGraphNode:
     def __init__( self, id, parentgraph ):
         self.parent = parentgraph
         self.id = id
-        # without: 16 secs
-        self.prime_product = calc_prime_product(parentgraph.graph[id]) # 26 secs
-        self.function_calls = count_function_calls(parentgraph.graph[id]) # 19 secs
+        self.prime_product, self.function_calls = calculate_node_values(parentgraph.graph[id])
     def get_children( self ):
         return self.parent.get_children( self.id )
     def get_parents( self ):
@@ -853,7 +835,10 @@ def get_regular_function_download_params(fn):
     e = extract_edge_tuples_from_graph(p)
     edges = edges_array_to_dict(e)
     
-    prime = calculate_prime_product_from_graph(fn.startEA)
+    prime = 1
+    
+    for node in p.get_nodes():
+        prime = (prime * node.prime_product) % 2**64
 
     return {'prime_product' : '%d' % prime, 'edges' : edges }
     
@@ -1229,6 +1214,9 @@ def download_all_internal():
             continue
             
         params = get_download_params(function_ea)
+        
+        if not params:
+            continue
         
         if not params['edges']:
             continue
