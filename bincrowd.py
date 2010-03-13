@@ -72,7 +72,7 @@ class FunctionSelectionDialog(Choose2):
 
 class AllFunctionsSelectionDialog(Choose2):
     def __init__(self, title, items):
-        Choose2.__init__(self, title, [ [ "Function", 20 ], ["Count", 20] ], Choose2.CH_MODAL)
+        Choose2.__init__(self, title, [ [ "Function", 20 ], ["Count", 20], ["Edges", 20] ], Choose2.CH_MODAL)
         self.n = 0
         self.items = items
         self.icon = -1
@@ -835,6 +835,9 @@ def get_regular_function_download_params(fn):
     e = extract_edge_tuples_from_graph(p)
     edges = edges_array_to_dict(e)
     
+    if len(edges) < 12:
+        return None
+    
     prime = 1
     
     for node in p.get_nodes():
@@ -1058,11 +1061,11 @@ def bincrowd_download(ea = None):
     except Exception, e:
         print e
 
-def get_information_all_functions(eas, result):
+def get_information_all_functions(eas, edge_counts, result):
     result_list = []
     
     for function_result in result:
-        result_list.append([eas[len(result_list)], len(function_result)])
+        result_list.append([eas[len(result_list)], len(function_result), edge_counts[len(result_list)]])
     
     return sorted(result_list, lambda x, y : y[1] - x[1])
     
@@ -1083,7 +1086,7 @@ def get_display_information_all_functions(information, perfect_match_count):
     chooser2 dialog.
     """
     
-    return [["Apply all top matches", "%d" % perfect_match_count]] + [[get_function_name(ea), "%d" % count] for [ea, count] in information]
+    return [["Apply all top matches", "%d" % perfect_match_count, ""]] + [[get_function_name(ea), "%d" % count, "%d" % edge_count] for [ea, count, edge_count] in information]
     
 def count_perfect_matches(result):
     perfect_match_count = 0
@@ -1187,6 +1190,7 @@ def download_all_internal():
     
     collected_params = []
     eas = []
+    edge_counts = []
 
     print "Collecting imported functions: %s" % datetime.now()
     
@@ -1200,6 +1204,7 @@ def download_all_internal():
                 
             collected_params.append(param)
             eas.append(function_ea)
+            edge_counts.append(0)
             
     print "Collecting regular functions: %s" % datetime.now()
     
@@ -1223,6 +1228,7 @@ def download_all_internal():
         
         collected_params.append(params)
         eas.append(function_ea)
+        edge_counts.append(len(params['edges']))
 
     (error_code, result) = download_list(collected_params)
     
@@ -1234,9 +1240,15 @@ def download_all_internal():
     for (file, match) in match_quality:
         print "%s: %d" % (file, match)
         
+    # Remove results with 0 matches
+    eas, edge_counts, result = zip( *[(eas[i], edge_counts[i], result[i]) for i in range(len(result)) if result[i]] )
+    
+    # Required because we use .index on this later after function selection
+    eas = list(eas)
+    
     while True:
         # Let the user pick for what target function he wants to copy information
-        all_functions_information = get_information_all_functions(eas, result)
+        all_functions_information = get_information_all_functions(eas, edge_counts, result)
         perfect_match_count = count_perfect_matches(result)
         display_information = get_display_information_all_functions(all_functions_information, perfect_match_count)
         
@@ -1253,7 +1265,6 @@ def download_all_internal():
         else:
             # Correct for the "Apply All" row
             selected_function = selected_function - 1
-        
             # Let the user pick for what downloaded information he wants to use for his target function
             selected_ea = all_functions_information[selected_function][0]
             
