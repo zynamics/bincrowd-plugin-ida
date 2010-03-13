@@ -281,10 +281,8 @@ def get_list_of_node_mnemonics(node):
     mnemonics = []
     
     while start < end:
-        mnemonic = idc.GetMnem( start )
-        if mnemonic:
-            mnemonics.append( mnemonic )
-        start = start + 1
+        mnemonics.append(idc.GetMnem(start))
+        start = idaapi.next_head(start, end)
     
     return mnemonics
     
@@ -293,6 +291,17 @@ def calc_prime_product(node):
     """
     return get_prime(get_list_of_node_mnemonics(node))
     
+def xrefs(ea):
+    xrefs = []
+    
+    xref = idaapi.xrefblk_t()
+    if xref.first_from(ea, 0):
+        xrefs.append(xref)
+        while xref.next_from():
+            xrefs.append(xref)
+            
+    return xrefs
+
 def count_function_calls(node):
     start = node.startEA
     end = node.endEA
@@ -300,7 +309,7 @@ def count_function_calls(node):
     calls = 0
     
     while start < end:
-        for xref in XrefsFrom(start, 0):
+        for xref in xrefs(start):
             if xref.type in [16, 17]:
                 calls = calls + 1
         
@@ -316,8 +325,9 @@ class proxyGraphNode:
     def __init__( self, id, parentgraph ):
         self.parent = parentgraph
         self.id = id
-        self.prime_product = calc_prime_product(parentgraph.graph[id])
-        self.function_calls = count_function_calls(parentgraph.graph[id])
+        # without: 16 secs
+        self.prime_product = calc_prime_product(parentgraph.graph[id]) # 26 secs
+        self.function_calls = count_function_calls(parentgraph.graph[id]) # 19 secs
     def get_children( self ):
         return self.parent.get_children( self.id )
     def get_parents( self ):
@@ -832,13 +842,13 @@ class DownloadReturn:
 def get_import_function_download_params(module, name):
     """ Returns an argument map for an imported function
     """
+    
     return {'module' : module, 'name' : name }
 
 def get_regular_function_download_params(fn):
     """ Returns an argument map for a regular function
     """
     p = proxyGraph(fn.startEA)
-    inf = idaapi.get_inf_structure()
 
     e = extract_edge_tuples_from_graph(p)
     edges = edges_array_to_dict(e)
@@ -878,38 +888,29 @@ class DownloadResults:
     # Returned if the 'password' argument was not provided by the client.
     MISSING_ARGUMENT_PASSWORD = 3
     
-    # Returned if the 'prime_product' argument was not provided by the client.
-    MISSING_ARGUMENT_PRIME_PRODUCT = 4
-    
-    # Returned if the 'edges' argument was not provided by the client.
-    MISSING_ARGUMENT_EDGES = 5
-    
-    # Returned if any of the edge arguments lack the 'indegree_source' attribute.
-    MISSING_ARGUMENT_EDGE_INDEGREE_SOURCE = 6
-    
-    # Returned if any of the edge arguments lack the 'outdegree_source' attribute.
-    MISSING_ARGUMENT_EDGE_OUTDEGREE_SOURCE = 7
-    
-    # Returned if any of the edge arguments lack the 'indegree_target' attribute.
-    MISSING_ARGUMENT_EDGE_INDEGREE_TARGET = 8
-    
-    # Returned if any of the edge arguments lack the 'outdegree_target' attribute.
-    MISSING_ARGUMENT_EDGE_OUTDEGREE_TARGET = 9
-    
-    # Returned if any of the edge arguments lack the 'topological_order_source' attribute.
-    MISSING_ARGUMENT_EDGE_TOPOLOGICAL_ORDER_SOURCE = 10
-    
-    # Returned if any of the edge arguments lack the 'topological_order_target' attribute.
-    MISSING_ARGUMENT_EDGE_TOPOLOGICAL_ORDER_TARGET = 11
-    
     # Returned if client and server versions are incompatible.
-    INVALID_VERSION_NUMBER = 12
+    INVALID_VERSION_NUMBER = 4
     
     # Returned if the provided login credentials could not be used to authenticate the user.
-    USER_NOT_AUTHENTICATED = 13
+    USER_NOT_AUTHENTICATED = 5
     
     # Returned if no matches for the uploaded functions were found.
-    NO_MATCHES_FOUND = 14
+    NO_MATCHES_FOUND = 6
+    
+    # Returned if the 'functions' argument was not provided by the client.
+    MISSING_ARGUMENT_FUNCTIONS = 7
+    
+    # Returned if the provided 'functions' argument has an invalid type or is incomplete.
+    INVALID_ARGUMENT_FUNCTIONS = 8
+    
+    # Returned if the provided 'version' argument has an invalid type.
+    INVALID_ARGUMENT_VERSION = 9
+    
+    # Returned if the provided 'username' argument has an invalid type.
+    INVALID_ARGUMENT_USERNAME = 10
+    
+    # Returned if the provided 'password' argument has an invalid type.
+    INVALID_ARGUMENT_PASSWORD = 11
 
 def clean_results(results):
     """ Cleans weird characters from downloaded strings.
@@ -1149,6 +1150,8 @@ def download_list(functions):
                  'version'        : CLIENTVERSION,
                  'functions'      : functions
                  }
+    print "Downloading function information: %s" % datetime.now()
+    
     try:
         rpc_srv = xmlrpclib.ServerProxy(uri, allow_none=True)
         response = rpc_srv.download(parameters)
@@ -1161,14 +1164,11 @@ def download_list(functions):
         DownloadResults.MISSING_ARGUMENT_VERSION,
         DownloadResults.MISSING_ARGUMENT_USERNAME,
         DownloadResults.MISSING_ARGUMENT_PASSWORD,
-        DownloadResults.MISSING_ARGUMENT_PRIME_PRODUCT,
-        DownloadResults.MISSING_ARGUMENT_EDGES,
-        DownloadResults.MISSING_ARGUMENT_EDGE_INDEGREE_SOURCE,
-        DownloadResults.MISSING_ARGUMENT_EDGE_OUTDEGREE_SOURCE,
-        DownloadResults.MISSING_ARGUMENT_EDGE_INDEGREE_TARGET,
-        DownloadResults.MISSING_ARGUMENT_EDGE_OUTDEGREE_TARGET,
-        DownloadResults.MISSING_ARGUMENT_EDGE_TOPOLOGICAL_ORDER_SOURCE,
-        DownloadResults.MISSING_ARGUMENT_EDGE_TOPOLOGICAL_ORDER_TARGET
+        DownloadResults.MISSING_ARGUMENT_FUNCTIONS,
+        DownloadResults.INVALID_ARGUMENT_FUNCTIONS,
+        DownloadResults.INVALID_ARGUMENT_VERSION,
+        DownloadResults.INVALID_ARGUMENT_USERNAME,
+        DownloadResults.INVALID_ARGUMENT_PASSWORD
     ]:
         print "Error: Uploaded incomplete data (Error code %d)" % response
         return (DownloadReturn.INCOMPLETE_DATA, None)
@@ -1181,12 +1181,15 @@ def download_list(functions):
     elif response == DownloadResults.NO_MATCHES_FOUND:
         return (DownloadReturn.NO_MATCHES_FOUND, None)
         
+    print "Parsing returned values: %s" % datetime.now()
+    
     try:
         (results, methodname) = xmlrpclib.loads(response.encode("utf-8"))
         clean_results(results)
         return (DownloadReturn.SUCCESS, results)
     except Exception, e:
         print e
+        print result
         return (DownloadReturn.COULDNT_RETRIEVE_DATA, None)
         
 def download_all_internal():
@@ -1205,28 +1208,34 @@ def download_all_internal():
     # Download all imported functions
     for index in xrange(len(imported_functions)):
         for function_ea, name in imported_functions[index]:
-            collected_params.append(get_download_params(function_ea))
+            param = get_download_params(function_ea)
+            
+            if not param:
+                continue
+                
+            collected_params.append(param)
             eas.append(function_ea)
             
     print "Collecting regular functions: %s" % datetime.now()
     
     # Download all regular functions
-    for function_ea in Functions(0, 0xFFFFFFFF):
+    for function_ea in idautils.Functions():
         fn = idaapi.get_func(function_ea)
         
         if not fn:
             continue
             
+        if get_imported_function(imported_functions, function_ea):
+            continue
+            
         params = get_download_params(function_ea)
-
+        
         if not params['edges']:
             continue
         
         collected_params.append(params)
         eas.append(function_ea)
 
-    print "Downloading function information: %s" % datetime.now()
-    
     (error_code, result) = download_list(collected_params)
     
     print "Processing downloaded information: %s" % datetime.now()
