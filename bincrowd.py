@@ -480,7 +480,6 @@ class UploadReturn:
 class UploadResults:
     """ Contains all possible return values of the upload function.
     """
-    
     # Returned if the upload process completed successfully.
     SUCCESS = 0
     
@@ -492,6 +491,9 @@ class UploadResults:
     
     # Returned if the data sent from the client to the server was malformed.
     MALFORMED_INPUT = 3
+    
+    # Returned if an unexpected error happened on the server
+    INTERNAL_ERROR = 4
 
 def get_frame_information(ea):
     """
@@ -773,7 +775,6 @@ def formatresults(results, currentNodeCount, currentEdgeCount):
         numberOfEdges   = r['number_of_edges']
         owner           = r['owner']
         strlist.append([MATCHDEGREE_STRINGS[degree], file, name, description, "%d (%d)" % (numberOfNodes, numberOfNodes - currentNodeCount), "%d (%d)" % (numberOfEdges, numberOfEdges - currentEdgeCount), owner])
-        
     return strlist
         
 class DownloadReturn:
@@ -794,7 +795,7 @@ def get_import_function_download_params(module, name):
     
     return {'module' : module, 'name' : name }
 
-def get_regular_function_download_params(fn):
+def get_regular_function_download_params(fn, skip_small_functions):
     """ Returns an argument map for a regular function
     """
     p = proxyGraph(fn.startEA)
@@ -802,7 +803,8 @@ def get_regular_function_download_params(fn):
     e = extract_edge_tuples_from_graph(p)
     edges = edges_array_to_dict(e)
     
-    if len(edges) < 12:
+    if skip_small_functions and len(edges) < 12:
+        print "Function %s is too small" % get_function_name(fn.startEA)
         return None
     
     prime = 1
@@ -812,7 +814,7 @@ def get_regular_function_download_params(fn):
 
     return {'prime_product' : '%d' % prime, 'edges' : edges }
     
-def get_download_params(ea):
+def get_download_params(ea, skip_small_functions):
     """ Returns an argument for the function at the given address.
         If there is no function at the given address, None is returned.
     """
@@ -826,7 +828,7 @@ def get_download_params(ea):
     fn = idaapi.get_func(ea)
     
     if fn:
-        return get_regular_function_download_params(fn)
+        return get_regular_function_download_params(fn, skip_small_functions)
      
     return None
     
@@ -834,38 +836,20 @@ class DownloadResults:
     """ Contains all possible return values of the download function.
     """
     
-    # Returned if the 'version' argument was not provided by the client.
-    MISSING_ARGUMENT_VERSION = 1
-    
-    # Returned if the 'username' argument was not provided by the client.
-    MISSING_ARGUMENT_USERNAME = 2
-    
-    # Returned if the 'password' argument was not provided by the client.
-    MISSING_ARGUMENT_PASSWORD = 3
+    # Returned if the download process completed successfully.
+    SUCCESS = 0
     
     # Returned if client and server versions are incompatible.
-    INVALID_VERSION_NUMBER = 4
+    INVALID_VERSION_NUMBER = 1
     
     # Returned if the provided login credentials could not be used to authenticate the user.
-    USER_NOT_AUTHENTICATED = 5
+    USER_NOT_AUTHENTICATED = 2
     
-    # Returned if no matches for the uploaded functions were found.
-    NO_MATCHES_FOUND = 6
+    # Returned if the data sent from the client to the server was malformed.
+    MALFORMED_INPUT = 3
     
-    # Returned if the 'functions' argument was not provided by the client.
-    MISSING_ARGUMENT_FUNCTIONS = 7
-    
-    # Returned if the provided 'functions' argument has an invalid type or is incomplete.
-    INVALID_ARGUMENT_FUNCTIONS = 8
-    
-    # Returned if the provided 'version' argument has an invalid type.
-    INVALID_ARGUMENT_VERSION = 9
-    
-    # Returned if the provided 'username' argument has an invalid type.
-    INVALID_ARGUMENT_USERNAME = 10
-    
-    # Returned if the provided 'password' argument has an invalid type.
-    INVALID_ARGUMENT_PASSWORD = 11
+    # Returned if an unexpected error happened on the server
+    INTERNAL_ERROR = 4
 
 def clean_results(results):
     """ Cleans weird characters from downloaded strings.
@@ -995,7 +979,10 @@ def set_information(ea, information):
         set_normal_information(information, idaapi.get_func(ea))
 
 def bincrowd_download_internal(ea):
-    functions = get_download_params(ea)
+    functions = get_download_params(ea, False)
+    
+    if not functions:
+        return
     
     (error_code, params) = download_list([functions])
     
@@ -1009,7 +996,6 @@ def bincrowd_download_internal(ea):
         return
         
     nodes, edges = get_graph_data(ea)
-    
     c = FunctionSelectionDialog("Retrieved Function Information", formatresults(params, nodes, edges))
     selected_row = c.Show(True)
     
@@ -1097,36 +1083,13 @@ def download_list(functions):
         print e
         return (DownloadReturn.COULDNT_CONNECT_TO_SERVER, None)
         
-    if response in [
-        DownloadResults.MISSING_ARGUMENT_VERSION,
-        DownloadResults.MISSING_ARGUMENT_USERNAME,
-        DownloadResults.MISSING_ARGUMENT_PASSWORD,
-        DownloadResults.MISSING_ARGUMENT_FUNCTIONS,
-        DownloadResults.INVALID_ARGUMENT_FUNCTIONS,
-        DownloadResults.INVALID_ARGUMENT_VERSION,
-        DownloadResults.INVALID_ARGUMENT_USERNAME,
-        DownloadResults.INVALID_ARGUMENT_PASSWORD
-    ]:
-        print "Error: Uploaded incomplete data (Error code %d)" % response
-        return (DownloadReturn.INCOMPLETE_DATA, None)
-    elif response == DownloadResults.INVALID_VERSION_NUMBER:
-        print "Error: Client uploaded an invalid version number"
-        return (DownloadReturn.INVALID_VERSION_NUMBER, None)
-    elif response == DownloadResults.USER_NOT_AUTHENTICATED:
-        print "Error: User could not be authenticated by the server"
-        return (DownloadReturn.USER_NOT_AUTHENTICATED, None)
-    elif response == DownloadResults.NO_MATCHES_FOUND:
-        return (DownloadReturn.NO_MATCHES_FOUND, None)
-        
-    print "Parsing returned values: %s" % datetime.now()
-    
     try:
-        (results, methodname) = xmlrpclib.loads(response.encode("utf-8"))
+        ((error_code, results), method_name) = xmlrpclib.loads(response.encode("utf-8"))
         clean_results(results)
         return (DownloadReturn.SUCCESS, results)
     except Exception, e:
         print e
-        print result
+        print results
         return (DownloadReturn.COULDNT_RETRIEVE_DATA, None)
         
 def download_overview(functions):
@@ -1152,27 +1115,6 @@ def download_overview(functions):
         print "Error: Could not connect to BinCrowd server"
         print e
         return (DownloadReturn.COULDNT_CONNECT_TO_SERVER, None)
-        
-    if response in [
-        DownloadResults.MISSING_ARGUMENT_VERSION,
-        DownloadResults.MISSING_ARGUMENT_USERNAME,
-        DownloadResults.MISSING_ARGUMENT_PASSWORD,
-        DownloadResults.MISSING_ARGUMENT_FUNCTIONS,
-        DownloadResults.INVALID_ARGUMENT_FUNCTIONS,
-        DownloadResults.INVALID_ARGUMENT_VERSION,
-        DownloadResults.INVALID_ARGUMENT_USERNAME,
-        DownloadResults.INVALID_ARGUMENT_PASSWORD
-    ]:
-        print "Error: Uploaded incomplete data (Error code %d)" % response
-        return (DownloadReturn.INCOMPLETE_DATA, None)
-    elif response == DownloadResults.INVALID_VERSION_NUMBER:
-        print "Error: Client uploaded an invalid version number"
-        return (DownloadReturn.INVALID_VERSION_NUMBER, None)
-    elif response == DownloadResults.USER_NOT_AUTHENTICATED:
-        print "Error: User could not be authenticated by the server"
-        return (DownloadReturn.USER_NOT_AUTHENTICATED, None)
-    elif response == DownloadResults.NO_MATCHES_FOUND:
-        return (DownloadReturn.NO_MATCHES_FOUND, None)
         
     print "Parsing returned values: %s" % datetime.now()
     
@@ -1201,7 +1143,7 @@ def download_all_internal():
     # Download all imported functions
     for index in xrange(len(imported_functions)):
         for function_ea, name in imported_functions[index]:
-            param = get_download_params(function_ea)
+            param = get_download_params(function_ea, True)
             
             if not param:
                 continue
@@ -1222,7 +1164,7 @@ def download_all_internal():
         if get_imported_function(imported_functions, function_ea):
             continue
             
-        params = get_download_params(function_ea)
+        params = get_download_params(function_ea, True)
         
         if not params:
             continue
