@@ -1061,11 +1061,11 @@ def bincrowd_download(ea = None):
     except Exception, e:
         print e
 
-def get_information_all_functions(eas, edge_counts, result):
+def get_information_all_functions(zipped_overview):
     result_list = []
     
-    for function_result in result:
-        result_list.append([eas[len(result_list)], len(function_result), edge_counts[len(result_list)]])
+    for (ea, edge_count, result) in zipped_overview:
+        result_list.append([ea, result['l'] + result['m'] + result['h'], edge_count])
     
     return sorted(result_list, lambda x, y : y[1] - x[1])
     
@@ -1088,14 +1088,11 @@ def get_display_information_all_functions(information, perfect_match_count):
     
     return [["Apply all top matches", "%d" % perfect_match_count, ""]] + [[get_function_name(ea), "%d" % count, "%d" % edge_count] for [ea, count, edge_count] in information]
     
-def count_perfect_matches(result):
+def count_perfect_matches(zipped_overview):
     perfect_match_count = 0
     
-    for function_result in result:
-        for single_result in function_result:
-            if single_result['match_degree'] == 1:
-                perfect_match_count = perfect_match_count + 1
-                break
+    for (ea, edge_count, result) in zipped_overview:
+        perfect_match_count = perfect_match_count + result['h']
             
     return perfect_match_count
     
@@ -1109,21 +1106,6 @@ def apply_all_perfect_matches(eas, result):
                 break
         counter = counter + 1
 
-def calculate_match_quality(result):
-    match_quality = { }
-
-    for function_result in result:
-        for single_result in function_result:
-            if single_result['number_of_nodes'] > 7:
-                file = single_result['file']
-                    
-                if not match_quality.has_key(file):
-                    match_quality[file] = 0
-                       
-                match_quality[file] = match_quality[file] + 1
-                    
-    return sorted(match_quality.items(), key=lambda x: x[1], reverse=True)
-                    
 def download_list(functions):
 
     uri, user, password = read_config_file()
@@ -1180,6 +1162,61 @@ def download_list(functions):
         print result
         return (DownloadReturn.COULDNT_RETRIEVE_DATA, None)
         
+def download_overview(functions):
+
+    uri, user, password = read_config_file()
+    
+    if user == None:
+    	print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
+    	return (DownloadReturn.COULDNT_READ_CONFIG_FILE, None)
+    	
+    parameters = {
+                 'username'       : user,
+                 'password'       : password,
+                 'version'        : CLIENTVERSION,
+                 'functions'      : functions
+                 }
+    print "Downloading function information: %s" % datetime.now()
+    
+    try:
+        rpc_srv = xmlrpclib.ServerProxy(uri, allow_none=True)
+        response = rpc_srv.download_overview(parameters)
+    except Exception, e:
+        print "Error: Could not connect to BinCrowd server"
+        print e
+        return (DownloadReturn.COULDNT_CONNECT_TO_SERVER, None)
+        
+    if response in [
+        DownloadResults.MISSING_ARGUMENT_VERSION,
+        DownloadResults.MISSING_ARGUMENT_USERNAME,
+        DownloadResults.MISSING_ARGUMENT_PASSWORD,
+        DownloadResults.MISSING_ARGUMENT_FUNCTIONS,
+        DownloadResults.INVALID_ARGUMENT_FUNCTIONS,
+        DownloadResults.INVALID_ARGUMENT_VERSION,
+        DownloadResults.INVALID_ARGUMENT_USERNAME,
+        DownloadResults.INVALID_ARGUMENT_PASSWORD
+    ]:
+        print "Error: Uploaded incomplete data (Error code %d)" % response
+        return (DownloadReturn.INCOMPLETE_DATA, None)
+    elif response == DownloadResults.INVALID_VERSION_NUMBER:
+        print "Error: Client uploaded an invalid version number"
+        return (DownloadReturn.INVALID_VERSION_NUMBER, None)
+    elif response == DownloadResults.USER_NOT_AUTHENTICATED:
+        print "Error: User could not be authenticated by the server"
+        return (DownloadReturn.USER_NOT_AUTHENTICATED, None)
+    elif response == DownloadResults.NO_MATCHES_FOUND:
+        return (DownloadReturn.NO_MATCHES_FOUND, None)
+        
+    print "Parsing returned values: %s" % datetime.now()
+    
+    try:
+        (results, methodname) = xmlrpclib.loads(response.encode("utf-8"))
+        return (DownloadReturn.SUCCESS, results)
+    except Exception, e:
+        print e
+        print result
+        return (DownloadReturn.COULDNT_RETRIEVE_DATA, None)
+        
 def download_all_internal():
     """
     Downloads information for all functions of the given file and lets
@@ -1230,26 +1267,24 @@ def download_all_internal():
         eas.append(function_ea)
         edge_counts.append(len(params['edges']))
 
-    (error_code, result) = download_list(collected_params)
+    (error_code, result) = download_overview(collected_params)
     
     print "Processing downloaded information: %s" % datetime.now()
     
-    match_quality = calculate_match_quality(result)
-   
+    match_quality = result[0]
+    function_results = result[1]
+    
     print "Files with most significant matches:"
+    
     for (file, match) in match_quality:
         print "%s: %d" % (file, match)
         
-    # Remove results with 0 matches
-    eas, edge_counts, result = zip( *[(eas[i], edge_counts[i], result[i]) for i in range(len(result)) if result[i]] )
-    
-    # Required because we use .index on this later after function selection
-    eas = list(eas)
+    zipped_overview = [(eas[result['i']], edge_counts[result['i']], result) for result in function_results]
     
     while True:
         # Let the user pick for what target function he wants to copy information
-        all_functions_information = get_information_all_functions(eas, edge_counts, result)
-        perfect_match_count = count_perfect_matches(result)
+        all_functions_information = get_information_all_functions(zipped_overview)
+        perfect_match_count = count_perfect_matches(zipped_overview)
         display_information = get_display_information_all_functions(all_functions_information, perfect_match_count)
         
         print "Displaying results: %s" % datetime.now()
@@ -1261,7 +1296,7 @@ def download_all_internal():
             break
             
         if selected_function == 0:
-            apply_all_perfect_matches(eas, result)
+            apply_all_perfect_matches(zipped_overview)
         else:
             # Correct for the "Apply All" row
             selected_function = selected_function - 1
@@ -1270,14 +1305,7 @@ def download_all_internal():
             
             idc.Jump(selected_ea)
 
-            nodes, edges = get_graph_data(selected_ea)
-            
-            function_information = result[eas.index(selected_ea)]
-            function_selection_dialog = FunctionSelectionDialog("Retrieved Function Information", formatresults(function_information, nodes, edges))
-            selected_row = function_selection_dialog.Show(True)
-             
-            if selected_row != -1:
-                set_information(selected_ea, function_information[selected_row])
+            bincrowd_download(selected_ea)
 
 def bincrowd_download_all():
     """
