@@ -110,13 +110,13 @@ class AllFunctionsSelectionDialog(Choose2):
 
 class FunctionDescription:
     def __init__( self, user, initialization_tuple ):
-        self.user       = user				        # Name of the uploading user
-        self.name       = initialization_tuple[0]	# Name of the function
-        self.address    = initialization_tuple[1]	# Address of the function in the parent
-        self.parentfile = initialization_tuple[2]	# MD5 of the parent executable
-        self.primeproduct = initialization_tuple[3]	# prime product of this function
-        self.prototype  = initialization_tuple[4]	# prototype string of this function
-        self.edges      = initialization_tuple[5]	# list of edge signatures of this function
+        self.user       = user                        # Name of the uploading user
+        self.name       = initialization_tuple[0]    # Name of the function
+        self.address    = initialization_tuple[1]    # Address of the function in the parent
+        self.parentfile = initialization_tuple[2]    # MD5 of the parent executable
+        self.primeproduct = initialization_tuple[3]    # prime product of this function
+        self.prototype  = initialization_tuple[4]    # prototype string of this function
+        self.edges      = initialization_tuple[5]    # list of edge signatures of this function
     def getTuple( self ):
         return (self.user, self.name, self.address, self.parentfile, self.primeproduct,
             self.prototype, self.primeproduct)
@@ -206,7 +206,7 @@ class GraphBFS:
     A generic class to perform a BFS traversal of a given graph
     """
     def __init__( self, flowgraph ):
-    	self.flowgraph = flowgraph
+        self.flowgraph = flowgraph
         self.root = self.find_root( flowgraph.nodes )
         self.layers = []
         self.layers.append( [ self.root ] )
@@ -461,7 +461,7 @@ def read_config_file():
         return (None, None, None)
     
 class UploadReturn:
-    UPLOAD_SUCCESS_ADDED = 0
+    UPLOAD_SUCCESS_ADDED = 13
     UPLOAD_SUCCESS_CHANGED = 1
     COULDNT_READ_CONFIG_FILE = 2
     SKIPPED_AUTO_GENERATED = 3
@@ -474,61 +474,24 @@ class UploadReturn:
     INCOMPLETE_DATA = 10
     INVALID_VERSION_NUMBER = 11
     USER_NOT_AUTHENTICATED = 12
+    FUNCTION_TOO_SMALL = 13
+    SUCCESS = 0
         
 class UploadResults:
     """ Contains all possible return values of the upload function.
     """
     
-    # Returned if the 'version' argument was not provided by the client.
-    MISSING_ARGUMENT_VERSION = 1
-    
-    # Returned if the 'username' argument was not provided by the client.
-    MISSING_ARGUMENT_USERNAME = 2
-    
-    # Returned if the 'password' argument was not provided by the client.
-    MISSING_ARGUMENT_PASSWORD = 3
-    
-    # Returned if the 'name' argument was not provided by the client.
-    MISSING_ARGUMENT_FUNCTION_NAME = 4
-    
-    # Returned if the 'prime_product' argument was not provided by the client.
-    MISSING_ARGUMENT_PRIME_PRODUCT = 5
-    
-    # Returned if the 'edges' argument was not provided by the client.
-    MISSING_ARGUMENT_EDGES = 6
-    
-    # Returned if any of the edge arguments lack the 'indegree_source' attribute.
-    MISSING_ARGUMENT_EDGE_INDEGREE_SOURCE = 7
-    
-    # Returned if any of the edge arguments lack the 'outdegree_source' attribute.
-    MISSING_ARGUMENT_EDGE_OUTDEGREE_SOURCE = 8
-    
-    # Returned if any of the edge arguments lack the 'indegree_target' attribute.
-    MISSING_ARGUMENT_EDGE_INDEGREE_TARGET = 9
-    
-    # Returned if any of the edge arguments lack the 'outdegree_target' attribute.
-    MISSING_ARGUMENT_EDGE_OUTDEGREE_TARGET = 10
-    
-    # Returned if any of the edge arguments lack the 'topological_order_source' attribute.
-    MISSING_ARGUMENT_EDGE_TOPOLOGICAL_ORDER_SOURCE = 11
-    
-    # Returned if any of the edge arguments lack the 'topological_order_target' attribute.
-    MISSING_ARGUMENT_EDGE_TOPOLOGICAL_ORDER_TARGET = 12
-    
-    # Returned if the file_information argument lacks the 'hash_md5' attribute.
-    MISSING_ARGUMENT_MD5_HASH = 13
+    # Returned if the upload process completed successfully.
+    SUCCESS = 0
     
     # Returned if client and server versions are incompatible.
-    INVALID_VERSION_NUMBER = 14
+    INVALID_VERSION_NUMBER = 1
     
     # Returned if the provided login credentials could not be used to authenticate the user.
-    USER_NOT_AUTHENTICATED = 15
+    USER_NOT_AUTHENTICATED = 2
     
-    # Returned if a new function was added to the database.
-    ADDED_NEW_FUNCTION = 16
-    
-    # Returned if an existing function was updated.
-    UPDATED_EXISTING_FUNCTION = 17
+    # Returned if the data sent from the client to the server was malformed.
+    MALFORMED_INPUT = 3
 
 def get_frame_information(ea):
     """
@@ -563,7 +526,7 @@ def get_frame_information(ea):
         name = idc.GetMemberName(frame, start)
         flag = idc.GetMemberFlag(frame, start)
         description = idc.GetMemberComment(frame, start, True) \
-            or idc.GetMemberComment(frame, start, False) #repeatable/non-repeatable
+            or idc.GetMemberComment(frame, start, False) or '' #repeatable/non-repeatable
             
         if description:
             description = idaapi.idb2scr(description).decode("iso-8859-1")
@@ -593,7 +556,7 @@ def get_demangled_name(ea):
     # because names with parentheses are invalid.
     first_parens = name.find("(")
     if first_parens != -1:
-    	name = name[0:first_parens]
+        name = name[0:first_parens]
     
     return name
 
@@ -616,61 +579,40 @@ def get_processor_name(inf):
         return inf.procName[:null_idx]
     else:
         return inf.procName
-        
-def bincrowd_upload(ea=None):
-    """ Uploads information for the function at the given ea.
+
+def get_regular_function_upload_params(fn):
+    """ Calculates the parameters to be sent when the given function is uploaded
     """
     
     uri, user, password = read_config_file()
     
     if user == None:
-    	print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
-    	return UploadReturn.COULDNT_READ_CONFIG_FILE
+        print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
+        return (UploadReturn.COULDNT_READ_CONFIG_FILE, None)
 
-    if not ea:
-        ea = here()
-        
-    fn = idaapi.get_func(ea)
+    name = get_function_name(fn.startEA)
     
-    if not fn:
-        print "No function at address %X" % ea
-        return UploadReturn.NO_FUNCTION_AT_ADDRESS
-
-    name = get_demangled_name(fn.startEA)
-    
-    print "0x%X: Uploading function %s" % (ea, name)
-    
-    if idaapi.has_dummy_name(idaapi.getFlags(fn.startEA)):
-        print "0x%X: '%s' was not uploaded because it has an auto-generated name." % (fn.startEA, name)
-        return UploadReturn.SKIPPED_AUTO_GENERATED
-
-    try:
-        p = proxyGraph(fn.startEA)
-        e = extract_edge_tuples_from_graph(p)
-    except Exception, e:
-        print "0x%X: '%s' was not uploaded because there was a local error in the edge list." % (fn.startEA, name)
-        return UploadReturn.SKIPPED_INTERNAL_ERROR
+    p = proxyGraph(fn.startEA)
+    e = extract_edge_tuples_from_graph(p)
 
     if not e:
         print "0x%X: '%s' was not uploaded because it is too small." % (fn.startEA, name)
-        return UploadReturn.SKIPPED_TOO_SMALL
-
+        return (UploadReturn.FUNCTION_TOO_SMALL, None)
+    
     edges = edges_array_to_dict(e)
     prime = calculate_prime_product_from_graph(fn.startEA)
     number_of_nodes = len(p.get_nodes())
     
     #repeatable/non-repeatable
-    description = idaapi.get_func_cmt(fn, True) or idaapi.get_func_cmt(fn, False)
+    description = idaapi.get_func_cmt(fn, True) or idaapi.get_func_cmt(fn, False) or ''
     
     if description:
         description = idaapi.idb2scr(description).decode("iso-8859-1")
 
-    md5 = idc.GetInputMD5().lower()
-    
     inf = idaapi.get_inf_structure()
     processor = get_processor_name(inf)
     
-    (local_variables, arguments) = get_frame_information(ea)
+    (local_variables, arguments) = get_frame_information(fn.startEA)
         
     stackFrame = (local_variables, arguments)
     
@@ -683,6 +625,42 @@ def bincrowd_upload(ea=None):
                 'number_of_nodes'           : "%d" % number_of_nodes
                 }
 
+    return (0, {'name'                  : name,
+             'description'           : description,
+             'prime_product'         : '%d' % prime,
+             'edges'                 : edges, 
+             'function_information'  : functionInformation,                                 
+             'stack_frame'           : stackFrame
+    })
+
+def find_next_uploaded_function(results, start):
+    for index, result in enumerate(results[start:]):
+        if result == 0:
+            return start + index
+            
+    return -1
+    
+def upload_list(functions):
+
+    parameters = []
+    
+    for fn in functions:
+        (error_code, params) = get_regular_function_upload_params(fn)
+        
+        if params:
+            parameters.append(params)
+            
+    uri, user, password = read_config_file()
+    
+    try:
+        rpc_srv = xmlrpclib.ServerProxy(uri, allow_none=True)
+    except:
+        print "Error: Could not connect to BinCrowd server"
+        return (UploadReturn.COULDNT_CONNECT_TO_SERVER, None)
+        
+    md5 = idc.GetInputMD5().lower()
+    inf = idaapi.get_inf_structure()
+    
     fileInformation = {
                 'hash_md5'                 : md5,
                 'name'                     : idc.GetInputFile(),
@@ -694,61 +672,49 @@ def bincrowd_upload(ea=None):
                  'username'              : user,
                  'password'              : password,
                  'version'               : CLIENTVERSION,
-                 'name'                  : name,
-                 'description'           : description,
-                 'prime_product'         : '%d' % prime,
-                 'edges'                 : edges, 
-                 'function_information'  : functionInformation,                                 
                  'file_information'      : fileInformation,
-                 'stack_frame'           : stackFrame
+                 'functions'             : parameters
                  }
     
     try:
-        rpc_srv = xmlrpclib.ServerProxy(uri, allow_none=True)
-    except:
-        print "Error: Could not connect to BinCrowd server"
-        return (UploadReturn.COULDNT_CONNECT_TO_SERVER, None)
-        
-    try:
-        response = rpc_srv.upload(parameters)
+        (error_code, response_list) = rpc_srv.upload(parameters)
     except Exception, e:
         print e
         print "Error: Could not upload data"
         return (UploadReturn.COULDNT_UPLOAD_DATA, None)
         
-    if response in [
-        UploadResults.MISSING_ARGUMENT_VERSION,
-        UploadResults.MISSING_ARGUMENT_USERNAME,
-        UploadResults.MISSING_ARGUMENT_PASSWORD,
-        UploadResults.MISSING_ARGUMENT_FUNCTION_NAME,
-        UploadResults.MISSING_ARGUMENT_PRIME_PRODUCT,
-        UploadResults.MISSING_ARGUMENT_EDGES,
-        UploadResults.MISSING_ARGUMENT_EDGE_INDEGREE_SOURCE,
-        UploadResults.MISSING_ARGUMENT_EDGE_OUTDEGREE_SOURCE,
-        UploadResults.MISSING_ARGUMENT_EDGE_INDEGREE_TARGET,
-        UploadResults.MISSING_ARGUMENT_EDGE_OUTDEGREE_TARGET,
-        UploadResults.MISSING_ARGUMENT_EDGE_TOPOLOGICAL_ORDER_SOURCE,
-        UploadResults.MISSING_ARGUMENT_EDGE_TOPOLOGICAL_ORDER_TARGET,
-        UploadResults.MISSING_ARGUMENT_MD5_HASH
-        ]:
-        print "Error: Uploaded incomplete data (Error code %d)" % response
-        return UploadReturn.INCOMPLETE_DATA
-    elif response == UploadResults.INVALID_VERSION_NUMBER:
-        print "Error: Client uploaded an invalid version number"
-        return UploadReturn.INVALID_VERSION_NUMBER
-    elif response == UploadResults.USER_NOT_AUTHENTICATED:
-        print "Error: User could not be authenticated by the server"
-        return UploadReturn.USER_NOT_AUTHENTICATED
-    elif response == UploadResults.ADDED_NEW_FUNCTION:
-        print "Added new function"
-        return UploadReturn.UPLOAD_SUCCESS_ADDED
-    elif response == UploadResults.UPDATED_EXISTING_FUNCTION:
-        print "Updated existing function"
-        return UploadReturn.UPLOAD_SUCCESS_CHANGED
+    if error_code == UploadResults.MALFORMED_INPUT:
+        return (UploadReturn.INCOMPLETE_DATA, None)
+    elif error_code == UploadResults.INVALID_VERSION_NUMBER:
+        return (UploadReturn.INVALID_VERSION_NUMBER, None)
+    elif error_code == UploadResults.USER_NOT_AUTHENTICATED:
+        return (UploadReturn.USER_NOT_AUTHENTICATED, None)
+    elif error_code == UploadResults.SUCCESS:
+        return (UploadReturn.SUCCESS, response_list)
     else:
-        print "Error: Unknown server reply ", response
-        return UploadReturn.UNKNOWN_SERVER_REPLY
+        print "Unknown response code %d" % error_code
+        return (None, None)
 
+def bincrowd_upload_internal(ea=None):
+    """ Uploads information for the function at the given ea.
+    """
+    
+    if not ea:
+        ea = here()
+        
+    fn = idaapi.get_func(ea)
+    
+    if not fn:
+        return (0, 0)
+        
+    return upload_list([fn])
+
+def bincrowd_upload(ea=None):
+    try:
+        print bincrowd_upload_internal(ea)
+    except Exception, e:
+        print e
+        
 def is_showstopper_upload_return_value(ret_val):
     """ Determines whether an upload return value is important enough
         to completely stop and 'Upload All' operation.
@@ -763,34 +729,35 @@ def is_showstopper_upload_return_value(ret_val):
         UploadReturn.USER_NOT_AUTHENTICATED
     ]
         
-def bincrowd_upload_all():
+def bincrowd_upload_all_internal():
     """ Uploads information about all functions in the IDB.
     """
     upload_stats = [0, 0, 0, 0, 0, 0, 0]
     
     functions = Functions(0, 0xFFFFFFFF)
     
+    functions_to_upload = []
+    
     for function_ea in functions:
-        name = idc.GetFunctionName(function_ea)
-        
-        ret_val = bincrowd_upload(function_ea)
-        
-        if is_showstopper_upload_return_value(ret_val):
-            print "Stopping upload of all functions"
-            return
-        
-        upload_stats[ret_val] += 1
+        functions_to_upload.append(idaapi.get_func(function_ea))
 
-    total_functions = sum(upload_stats)
-    success_count = upload_stats[UploadReturn.UPLOAD_SUCCESS_ADDED] + upload_stats[UploadReturn.UPLOAD_SUCCESS_CHANGED]
+    (error_code, result_list) = upload_list(functions_to_upload)
+    
+    total_functions = len(functions_to_upload)
+    uploaded_functions = len(result_list)
+    added_functions = sum(result_list)
+    updated_functions = uploaded_functions - added_functions
     
     print "All function information was uploaded"
-    print "  Successful: %d (%.02f%%)" % (success_count, 100.0 * success_count / total_functions)
-    print "  Added new functions: %d (%.02f%%)" % (upload_stats[UploadReturn.UPLOAD_SUCCESS_ADDED], 100.0 * upload_stats[UploadReturn.UPLOAD_SUCCESS_ADDED] / total_functions)
-    print "  Changed existing functions: %d (%.02f%%)" % (upload_stats[UploadReturn.UPLOAD_SUCCESS_CHANGED], 100.0 * upload_stats[UploadReturn.UPLOAD_SUCCESS_CHANGED] / total_functions)
-    print "  Skipped (auto-generated names): %d (%.02f%%)" % (upload_stats[UploadReturn.SKIPPED_AUTO_GENERATED], 100.0 * upload_stats[UploadReturn.SKIPPED_AUTO_GENERATED] / total_functions)
-    print "  Skipped (too small): %d (%.02f%%)" % (upload_stats[UploadReturn.SKIPPED_TOO_SMALL], 100.0 * upload_stats[UploadReturn.SKIPPED_TOO_SMALL] / total_functions)
-    print "  Unknown server reply: %d (%.02f%%)" % (upload_stats[UploadReturn.UNKNOWN_SERVER_REPLY], 100.0 * upload_stats[UploadReturn.UNKNOWN_SERVER_REPLY] / total_functions)
+    print "  Successful: %d (%.02f%%)" % (uploaded_functions, 100.0 * uploaded_functions / total_functions)
+    print "  Added new functions: %d (%.02f%%)" % (added_functions, 100.0 * added_functions / total_functions)
+    print "  Changed existing functions: %d (%.02f%%)" % (updated_functions, 100.0 * updated_functions / total_functions)
+
+def bincrowd_upload_all():
+    try:
+        bincrowd_upload_all_internal()
+    except Exception, e:
+        print e
 
 MATCHDEGREE_STRINGS = [ "", "High", "Medium", "Low" ]
 
@@ -1035,8 +1002,8 @@ def bincrowd_download_internal(ea):
     params = params[0]
     
     if error_code != DownloadReturn.SUCCESS:
-    	return
-    	
+        return
+        
     if len(params) == 0:
         print "No information for function '%s' available" % get_function_name(ea)
         return
@@ -1111,9 +1078,9 @@ def download_list(functions):
     uri, user, password = read_config_file()
     
     if user == None:
-    	print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
-    	return (DownloadReturn.COULDNT_READ_CONFIG_FILE, None)
-    	
+        print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
+        return (DownloadReturn.COULDNT_READ_CONFIG_FILE, None)
+        
     parameters = {
                  'username'       : user,
                  'password'       : password,
@@ -1167,9 +1134,9 @@ def download_overview(functions):
     uri, user, password = read_config_file()
     
     if user == None:
-    	print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
-    	return (DownloadReturn.COULDNT_READ_CONFIG_FILE, None)
-    	
+        print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
+        return (DownloadReturn.COULDNT_READ_CONFIG_FILE, None)
+        
     parameters = {
                  'username'       : user,
                  'password'       : password,
