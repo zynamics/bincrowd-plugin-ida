@@ -483,10 +483,14 @@ def get_frame_information(ea):
     if frame == None:
         return [[], []]
     
-    start = idc.GetFirstMember(frame)
+    first = start = idc.GetFirstMember(frame)
     end = idc.GetLastMember(frame)
     
-    while start <= end:
+    # There are some really screwed up frames of millions and billions of bytes.
+    # We need an upper limit, otherwise we'll loop forever.
+    #
+    # TODO: Find a better way to loop through the frame.
+    while start <= end and start <= first + 10000:
         size = idc.GetMemberSize(frame, start)
         
         if size == None:
