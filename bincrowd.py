@@ -620,7 +620,8 @@ def get_regular_function_upload_params(fn):
     number_of_nodes = len(p.get_nodes())
     
     #repeatable/non-repeatable
-    description = idaapi.get_func_cmt(fn, True) or idaapi.get_func_cmt(fn, False) or ''
+    fn2 = idaapi.get_func(fn.startEA)
+    description = idaapi.get_func_cmt(fn2, True) or idaapi.get_func_cmt(fn2, False) or ''
     
     if description:
         description = idaapi.idb2scr(description).decode("iso-8859-1")
@@ -681,7 +682,6 @@ def upload(functions):
     """
 
     parameters = []
-    
     for fn in functions:
         (error_code, params) = get_regular_function_upload_params(fn)
         
@@ -692,6 +692,8 @@ def upload(functions):
       return (UploadReturn.NO_FUNCTIONS_FOUND, None)
             
     uri, user, password = read_config_file()
+    
+    print "Starting upload: %s" % datetime.now()
     
     try:
         rpc_srv = xmlrpclib.ServerProxy(uri, allow_none=True)
@@ -725,6 +727,7 @@ def upload(functions):
         return (UploadReturn.COULDNT_UPLOAD_DATA, None)
         
     if error_code == UploadResults.SUCCESS:
+        print "Upload complete: %s" % datetime.now()
         return (UploadReturn.SUCCESS, response_list)
     elif error_code == UploadResults.MALFORMED_INPUT:
         print "Error: Incomplete data was sent to server"
@@ -784,12 +787,26 @@ def bincrowd_upload(ea=None):
         bincrowd_upload_internal(ea)
     except Exception, e:
         print e
-        
+
+class MyFunction:
+    """ This is needed for a ridiculous workaround. In the upload_internal function we create the list of
+        all functions of in an IDB file. Apparently there is a fixed size buffer in IDA of 128 func_t objects
+        that can exist at the same time. So when we have more than 128 functions in an IDB file we get a
+        collision and everything breaks down.
+    """
+    def __init__(self, ea):
+        self.startEA = ea
+
 def bincrowd_upload_all_internal():
     """ Uploads information about all functions in the IDB.
     """
-    functions_to_upload = map(idaapi.get_func, Functions(0, 0xFFFFFFFF))
+    functions_to_upload = []
     
+    for ea in Functions(0, 0xFFFFFFFF):
+#        fn = idaapi.get_func(ea)
+#        functions_to_upload.append(fn)
+        functions_to_upload.append(MyFunction(ea))
+        
     (error_code, result_list) = upload(functions_to_upload)
     
     total_functions = len(functions_to_upload)
@@ -847,7 +864,7 @@ def get_regular_function_download_params(fn, skip_small_functions):
     p = proxyGraph(fn.startEA)
     e = extract_edge_tuples_from_graph(p)
     
-    if skip_small_functions and len(e) < 12:
+    if skip_small_functions and len(e) < 6:
         print "Function %s is too small" % get_function_name(fn.startEA)
         return None
     
@@ -920,6 +937,7 @@ def imported_functions_callback(ea, name, ord):
     """ Callback function for enumerating all imported functions of a module.
     """
     imported_functions[-1].append((ea, name))
+
     return 1
 
 def fill_imported_functions():
