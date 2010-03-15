@@ -1069,9 +1069,9 @@ def formatresults(results, currentNodeCount, currentEdgeCount):
     strlist = []
     for r in results:
         degree          = r['match_degree']
-        file            = r['file']           if len(r['file'])       <=26  else r['file'][:23]+'...'
-        name            = r['name']           if len(r['name'])       <=26  else r['name'][:23]+'...'
-        description     = r['description']    if len(r['description'])<=100 else r['description'][:97]+'...'
+        file            = r['file']
+        name            = r['name']
+        description     = r['description']
         numberOfNodes   = r['number_of_nodes']
         numberOfEdges   = r['number_of_edges']
         owner           = r['owner']
