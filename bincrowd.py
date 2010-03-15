@@ -1143,7 +1143,7 @@ def get_information_all_functions(zipped_overview):
     for (ea, edge_count, result) in zipped_overview:
         result_list.append([ea, result['h'], result['m'], result['l'], edge_count])
     
-    return sorted(result_list, lambda x, y : y[2] - x[2])
+    return sorted(result_list, lambda x, y : y[4] - x[4])
     
 def get_function_name(ea):
     """ Returns the name of the function at the given address.
