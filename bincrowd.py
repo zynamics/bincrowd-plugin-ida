@@ -72,7 +72,7 @@ class FunctionSelectionDialog(Choose2):
 
 class AllFunctionsSelectionDialog(Choose2):
     def __init__(self, title, items):
-        Choose2.__init__(self, title, [ [ "Function", 20 ], ["Count", 20], ["Edges", 20] ], Choose2.CH_MODAL)
+        Choose2.__init__(self, title, [ [ "Function", 20 ], ["Matches", 20], ["Edges", 20] ], Choose2.CH_MODAL)
         self.n = 0
         self.items = items
         self.icon = -1
@@ -120,37 +120,6 @@ class FunctionDescription:
     def getTuple( self ):
         return (self.user, self.name, self.address, self.parentfile, self.primeproduct,
             self.prototype, self.primeproduct)
-
-
-
-class BinCloudRPCClient:
-    def __init__( self, servername, username, authtoken ):
-        self.username=username
-        self.authtoken=authtoken
-        self.servername=servername
-    
-    def query( self, list_of_edges, prime_product ):
-        """
-            This will return a list of FunctionDescriptions
-            
-        """
-        
-        return [ FunctionDescription( ret[0], ret[1:] ) for ret in results ]
-    
-    def upload( self, list_of_function_tuples ):
-        """
-            A function tuple consists of:
-                name of the function
-                address of the function
-                parent file MD5 of the function
-                prime product of the function
-                prototype string of the function
-                edge tuples of the function
-        """
-        
-        
-        
-  
 
 g_Primes = (
     3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,73,79,83,89,97,101,103,107,109,113,
@@ -201,106 +170,6 @@ def get_prime( list_of_mnemonics ):
         initial = (initial * get_prime1( mnemonic )) % 2**64
     return initial
 
-class GraphBFS:
-    """
-    A generic class to perform a BFS traversal of a given graph
-    """
-    def __init__( self, flowgraph ):
-        self.flowgraph = flowgraph
-        self.root = self.find_root( flowgraph.nodes )
-        self.layers = []
-        self.layers.append( [ self.root ] )
-        self.visited = sets.Set()
-        work_layer = [ self.root ]
-        while len( work_layer ) > 0:
-            next_layer = sets.Set()
-            for element in work_layer:
-                temp_elements = [ x for x in element.children if x not in self.visited ]
-                self.visited.update( temp_elements )
-                next_layer.update( temp_elements )
-                self.layers.append( list( next_layer ))
-            work_layer = next_layer 
-    def find_root(self, nodes):
-        """Finds the root node of a view. Note that this function is a bit imprecise
-            but it should do the trick for most views."""
-        for node in nodes:
-            if len(node.parents) == 0:
-                return node
-        return nodes[0]
-    def get_layer_count( self ):
-        return len( self.layers )
-    def get_layer( self, index ):
-        return self.layers[ index ]
-    def get_node_to_layer_index( self ):
-        result = {}
-        
-        # There is a problem with functions that have "weird"
-        # shapes (multiple entry nodes, ...). The function for
-        # extracting tuples expects all node layers to be
-        # initialized but the breadth-first search does not hit
-        # all nodes in weird graphs. That's why we do a default
-        # value initialization which is later kept for all nodes
-        # that are not hit by the breadth-first search.
-        for node in self.flowgraph.nodes:
-            result [ node ] = 0x31337
-        
-        for i in range( self.get_layer_count()):
-            layer = self.get_layer( i )
-            for node in layer:
-                result[ node ] = i
-        return result
-
-class Foo:
-    pass
-        
-def extract_edge_tuples_from_graph( flowgraph ):
-    gBfs = GraphBFS( flowgraph )
-    node_to_layer_index = gBfs.get_node_to_layer_index()
-    result_tuples = []
-    for edge in flowgraph.edges:
-        sig = ( len(edge.source.parents), \
-            len(edge.source.children), \
-            len(edge.target.parents), \
-            len(edge.target.children), \
-            node_to_layer_index[ edge.source ], \
-            node_to_layer_index[ edge.target ],
-            edge.source.prime_product,
-            edge.source.function_calls,
-            edge.target.prime_product,
-            edge.target.function_calls
-        )
-        result_tuples.append( sig )
-    return result_tuples
-
-def xrefs(ea):
-    xrefs = []
-    
-    xref = idaapi.xrefblk_t()
-    if xref.first_from(ea, idaapi.XREF_FAR):
-        if xref.type == 16 or xref.type == 17:
-            xrefs.append(xref)
-        while xref.next_from():
-            if xref.type == 16 or xref.type == 17:
-                xrefs.append(xref)
-            
-    return xrefs
-
-def calculate_node_values(node):
-    start = node.startEA
-    end = node.endEA
-    
-    calls = 0
-    mnemonics = []
-    
-    while start < end:
-        for xref in xrefs(start):
-            calls = calls + 1
-        
-        mnemonics.append(idaapi.ua_mnem(start))
-        start = idaapi.next_head(start, end)
-        
-    return (get_prime(mnemonics), calls)
-    
 class proxyGraphNode:
     """
         A small stub class to proxy the BinNavi node class into IDA's
@@ -398,47 +267,182 @@ class proxyGraph:
     nodes = property( get_nodes, set_nodes )
     edges = property( get_edges, set_edges )
 
-def get_list_of_function_mnemonics(address):
-    """ Returns a list of all mnemonics found in a function.
+class GraphBFS:
     """
-    fniter = idaapi.func_item_iterator_t(idaapi.get_func(address))
+    A generic class to perform a BFS traversal of a given graph
+    """
+    def __init__( self, flowgraph ):
+        self.flowgraph = flowgraph
+        self.root = self.find_root( flowgraph.nodes )
+        self.layers = []
+        self.layers.append( [ self.root ] )
+        self.visited = sets.Set()
+        work_layer = [ self.root ]
+        while len( work_layer ) > 0:
+            next_layer = sets.Set()
+            for element in work_layer:
+                temp_elements = [ x for x in element.children if x not in self.visited ]
+                self.visited.update( temp_elements )
+                next_layer.update( temp_elements )
+                self.layers.append( list( next_layer ))
+            work_layer = next_layer 
+    def find_root(self, nodes):
+        """Finds the root node of a view. Note that this function is a bit imprecise
+            but it should do the trick for most views."""
+        for node in nodes:
+            if len(node.parents) == 0:
+                return node
+        return nodes[0]
+    def get_layer_count( self ):
+        return len( self.layers )
+    def get_layer( self, index ):
+        return self.layers[ index ]
+    def get_node_to_layer_index( self ):
+        result = {}
+        
+        # There is a problem with functions that have "weird"
+        # shapes (multiple entry nodes, ...). The function for
+        # extracting tuples expects all node layers to be
+        # initialized but the breadth-first search does not hit
+        # all nodes in weird graphs. That's why we do a default
+        # value initialization which is later kept for all nodes
+        # that are not hit by the breadth-first search.
+        for node in self.flowgraph.nodes:
+            result [ node ] = 0x31337
+        
+        for i in range( self.get_layer_count()):
+            layer = self.get_layer( i )
+            for node in layer:
+                result[ node ] = i
+        return result
+
+def extract_edge_tuples_from_graph( flowgraph ):
+    gBfs = GraphBFS( flowgraph )
+    node_to_layer_index = gBfs.get_node_to_layer_index()
+    result_tuples = []
+    for edge in flowgraph.edges:
+        sig = ( len(edge.source.parents), \
+            len(edge.source.children), \
+            len(edge.target.parents), \
+            len(edge.target.children), \
+            node_to_layer_index[ edge.source ], \
+            node_to_layer_index[ edge.target ],
+            edge.source.prime_product,
+            edge.source.function_calls,
+            edge.target.prime_product,
+            edge.target.function_calls
+        )
+        result_tuples.append( sig )
+    return result_tuples
+
+def is_call_reference(xref):
+    """ Determines whether a given xref is a call reference.
     
+        Parameters:
+          - xref : The xref to check.
+          
+        Returns:
+          True, if the xref is a call reference. False, otherwise.
+    """
+    return xref.type == 16 or xref.type == 17
+    
+def is_call(ea):
+    """ Determines whether the instruction at the given ea is a call instruction.
+    
+        Parameters:
+          - ea : The ea of the instruction to check.
+          
+        Returns:
+          True, if the instruction at ea is a call instruction. False, otherwise.
+    """
+    xref = idaapi.xrefblk_t()
+    
+    if xref.first_from(ea, idaapi.XREF_FAR):
+        if is_call_reference(xref):
+            return True
+        while xref.next_from():
+            if is_call_reference(xref):
+                return True
+            
+    return False
+
+def calculate_node_values(node):
+    """ Calculates the prime product and the number of outgoing calls for a control
+        flow graph node.
+        
+        Parameters:
+          - node : The node for which the values are calculated.
+          
+        Returns:
+          A pair of the prime product of the node and the number of outgoing calls.
+    """
+    start = node.startEA
+    end = node.endEA
+    
+    calls = 0
     mnemonics = []
     
-    mnemonics.append( idc.GetMnem( fniter.current() ) )
+    while start < end:
+        if is_call(start):
+            calls = calls + 1
+        
+        mnemonics.append(idaapi.ua_mnem(start))
+        start = idaapi.next_head(start, end)
+        
+    return (get_prime(mnemonics), calls)
     
-    while fniter.next_code():
-        mnemonics.append( idc.GetMnem( fniter.current() ) )
+def calculate_prime_product(graph):
+    """ Calculates the prime product of a graph.
     
-    return mnemonics
-    
-def calculate_prime_product_from_graph(address):
-    """ Calculates the prime product for the function at the given address.
+        Parameters:
+          - graph : The graph to calculate the prime product for.
+        
+        Returns:
+          The prime product of the graph.
     """
-    return get_prime(get_list_of_function_mnemonics(address))
+    prime = 1
 
-"""
-BINCROWD RPC FUNCTIONS
-"""
-def edges_array_to_dict(e):
-    edges = []
-    for tup in e:
-        edges.append(
-               {'indegree_source'            : tup[0],
-                'outdegree_source'           : tup[1],
-                'indegree_target'            : tup[2],
-                'outdegree_target'           : tup[3],
-                'topological_order_source'   : tup[4],
-                'topological_order_target'   : tup[5],
-                'source_prime'               : "%d" % tup[6],
-                'source_call_num'            : tup[7],
-                'target_prime'               : "%d" % tup[8],
-                'target_call_num'            : tup[9]
+    for node in graph.get_nodes():
+        prime = (prime * node.prime_product) % 2**64
+        
+    return prime
+
+def edges_array_to_dict(edges):
+    """ Takes a list of edges and converts them into a list of maps that
+        can be sent to the BinCrowd server.
+        
+        Parameters:
+          - A list of edges.
+          
+        Returns:
+          A list of the same cardinality where every edge of the input map
+          is described in a way that can be understood by the BinCrowd server.
+    """
+    output_list = []
+    for (indegree_source, outdegree_source, indegree_target, outdegree_target, topological_order_source, topological_order_target, source_prime, source_call_num, target_prime, target_call_num) in edges:
+        output_list.append(
+               {'indegree_source'            : indegree_source,
+                'outdegree_source'           : outdegree_source,
+                'indegree_target'            : indegree_target,
+                'outdegree_target'           : outdegree_target,
+                'topological_order_source'   : topological_order_source,
+                'topological_order_target'   : topological_order_target,
+                'source_prime'               : "%d" % source_prime,
+                'source_call_num'            : source_call_num,
+                'target_prime'               : "%d" % target_prime,
+                'target_call_num'            : target_call_num
             })
                 
-    return edges
+    return output_list
 
 def read_config_file():
+    """ Reads the BinCrowd IDA plugin configuration file.
+    
+        Returns:
+          A triple of (url, username, password) which describes the location
+          of the BinCrowd server and how to access it. If anything goes wrong,
+          (None, None, None) is returned.
+    """
     debug_print("Reading configuration file")
     
     directory = os.path.dirname(SCRIPT_DIRECTORY)
@@ -460,51 +464,15 @@ def read_config_file():
     except:
         return (None, None, None)
     
-class UploadReturn:
-    UPLOAD_SUCCESS_ADDED = 13
-    UPLOAD_SUCCESS_CHANGED = 1
-    COULDNT_READ_CONFIG_FILE = 2
-    SKIPPED_AUTO_GENERATED = 3
-    SKIPPED_INTERNAL_ERROR = 4
-    SKIPPED_TOO_SMALL = 5
-    UNKNOWN_SERVER_REPLY = 6
-    COULDNT_CONNECT_TO_SERVER = 7
-    COULDNT_UPLOAD_DATA = 8
-    NO_FUNCTION_AT_ADDRESS = 9
-    INCOMPLETE_DATA = 10
-    INVALID_VERSION_NUMBER = 11
-    USER_NOT_AUTHENTICATED = 12
-    FUNCTION_TOO_SMALL = 13
-    SUCCESS = 0
-        
-class UploadResults:
-    """ Contains all possible return values of the upload function.
-    """
-    # Returned if the upload process completed successfully.
-    SUCCESS = 0
-    
-    # Returned if client and server versions are incompatible.
-    INVALID_VERSION_NUMBER = 1
-    
-    # Returned if the provided login credentials could not be used to authenticate the user.
-    USER_NOT_AUTHENTICATED = 2
-    
-    # Returned if the data sent from the client to the server was malformed.
-    MALFORMED_INPUT = 3
-    
-    # Returned if an unexpected error happened on the server
-    INTERNAL_ERROR = 4
-
 def get_frame_information(ea):
-    """
-    This function returns a tuple of local variables of a stack frame and
-    the arguments passed to the function.
-    
-    The function assumes that the stack frame has the following layout:
-    
-    local variables
-    return address and/or base pointer
-    arguments
+    """ Analyzes the stack frame of the function at the given ea for information
+        that is important to BinCrowd.
+        
+        Parameters:
+          - ea : The ea of the function whose stack frame should be analyzed.
+          
+        Returns:
+          A pair of local local variables and arguments found in the stack frame.
     """
     local_variables = [ ]
     arguments = [ ]
@@ -526,14 +494,13 @@ def get_frame_information(ea):
             continue
 
         name = idc.GetMemberName(frame, start)
-        flag = idc.GetMemberFlag(frame, start)
         description = idc.GetMemberComment(frame, start, True) \
             or idc.GetMemberComment(frame, start, False) or '' #repeatable/non-repeatable
             
         if description:
             description = idaapi.idb2scr(description).decode("iso-8859-1")
         
-        debug_print("%s: %d %08X" % (name, size, flag))
+        debug_print("%s: %d" % (name, size))
         
         start += size
         
@@ -548,6 +515,12 @@ def get_frame_information(ea):
 
 def get_demangled_name(ea):
     """ Gets the name of the function at address ea and demangles it.
+    
+        Parameters:
+          - ea : The ea of the function.
+          
+        Returns:
+          The demangled name of the function.
     """
     name = Demangle(idc.GetFunctionName(ea), idc.GetLongPrm(INF_SHORT_DN))
     if not name:
@@ -562,10 +535,22 @@ def get_demangled_name(ea):
     
     return name
 
-def get_imported_function(imported_functions, ea):
-    """ Returns the imported function at the given effective address.
-        If there is no imported function at that address, None is returned.
+def get_imported_function(ea):
+    """ Searches through an array of imported functions for the imported function at ea.
+    
+        Parameters:
+          - imported_functions : A list of list of imported_functions where each element
+                                 of the list contains the imported functions of the imported
+                                 library with the same index.
+          - ea                 : The ea to search for.
+       
+        Returns:
+          Returns a pair of module name and imported function name if an imported function
+          was found at the given effective address. If there is no imported function at that
+          address, None is returned.
     """
+    fill_imported_functions_if_necessary()
+    
     for index in xrange(len(imported_functions)):
         functions = imported_functions[index]
         
@@ -576,14 +561,44 @@ def get_imported_function(imported_functions, ea):
     return None
     
 def get_processor_name(inf):
+    """ Determines the processor name for which the disassembled binary was generated.
+    
+        Parameters:
+          - inf : The inf structure of the IDB file.
+          
+        Returns:
+          The processor name for which the IDB was generated.
+    """
     null_idx = inf.procName.find(chr(0))
     if null_idx > 0:
         return inf.procName[:null_idx]
     else:
         return inf.procName
 
+class UploadReturn:
+    SUCCESS = 0
+    COULDNT_READ_CONFIG_FILE = 1
+    COULDNT_CONNECT_TO_SERVER = 2
+    COULDNT_UPLOAD_DATA = 3
+    INCOMPLETE_DATA = 4
+    INVALID_VERSION_NUMBER = 5
+    USER_NOT_AUTHENTICATED = 6
+    FUNCTION_TOO_SMALL = 7
+    INTERNAL_ERROR = 8
+    NO_FUNCTION_AT_ADDRESS = 9
+    SKIPPED_AUTO_GENERATED = 10
+    NO_FUNCTIONS_FOUND = 11
+        
 def get_regular_function_upload_params(fn):
     """ Calculates the parameters to be sent when the given function is uploaded
+    
+        Parameters:
+          - fn : The function for which the upload parameters are generated.
+          
+        Returns:
+          A pair of (error code, function description) where error code describes
+          whether the parameter generation was successful and function description
+          is a description of the function that can be sent to the BinCrowd server.
     """
     
     uri, user, password = read_config_file()
@@ -594,6 +609,10 @@ def get_regular_function_upload_params(fn):
 
     name = get_function_name(fn.startEA)
     
+    if idaapi.has_dummy_name(idaapi.getFlags(fn.startEA)):
+        print "0x%X: '%s' was not uploaded because it has an auto-generated name." % (fn.startEA, name)
+        return (UploadReturn.SKIPPED_AUTO_GENERATED, None)
+        
     p = proxyGraph(fn.startEA)
     e = extract_edge_tuples_from_graph(p)
 
@@ -602,7 +621,7 @@ def get_regular_function_upload_params(fn):
         return (UploadReturn.FUNCTION_TOO_SMALL, None)
     
     edges = edges_array_to_dict(e)
-    prime = calculate_prime_product_from_graph(fn.startEA)
+    prime = calculate_prime_product(p)
     number_of_nodes = len(p.get_nodes())
     
     #repeatable/non-repeatable
@@ -635,14 +654,36 @@ def get_regular_function_upload_params(fn):
              'stack_frame'           : stackFrame
     })
 
-def find_next_uploaded_function(results, start):
-    for index, result in enumerate(results[start:]):
-        if result == 0:
-            return start + index
-            
-    return -1
+class UploadResults:
+    """ Contains all possible return values of the upload function.
+    """
+    # Returned if the upload process completed successfully.
+    SUCCESS = 0
     
-def upload_list(functions):
+    # Returned if client and server versions are incompatible.
+    INVALID_VERSION_NUMBER = 1
+    
+    # Returned if the provided login credentials could not be used to authenticate the user.
+    USER_NOT_AUTHENTICATED = 2
+    
+    # Returned if the data sent from the client to the server was malformed.
+    MALFORMED_INPUT = 3
+    
+    # Returned if an unexpected error happened on the server
+    INTERNAL_ERROR = 4
+
+def upload(functions):
+    """ Uploads information about a list of functions to the BinCrowd server.
+    
+        Parameters:
+          - functions : The functions whose information should be uploaded.
+          
+        Returns:
+          A pair of (error code, response list) where error code is an UploadReturn
+          value that gives information about what happened and response list is a list
+          of responses received for each uploaded function in case the upload was
+          completed successfully.
+    """
 
     parameters = []
     
@@ -651,6 +692,9 @@ def upload_list(functions):
         
         if params:
             parameters.append(params)
+    
+    if not parameters:
+      return (UploadReturn.NO_FUNCTIONS_FOUND, None)
             
     uri, user, password = read_config_file()
     
@@ -685,20 +729,35 @@ def upload_list(functions):
         print "Error: Could not upload data"
         return (UploadReturn.COULDNT_UPLOAD_DATA, None)
         
-    if error_code == UploadResults.MALFORMED_INPUT:
+    if error_code == UploadResults.SUCCESS:
+        return (UploadReturn.SUCCESS, response_list)
+    elif error_code == UploadResults.MALFORMED_INPUT:
+        print "Error: Incomplete data was sent to server"
         return (UploadReturn.INCOMPLETE_DATA, None)
     elif error_code == UploadResults.INVALID_VERSION_NUMBER:
+        print "Error: Invalid version number was sent to server"
         return (UploadReturn.INVALID_VERSION_NUMBER, None)
     elif error_code == UploadResults.USER_NOT_AUTHENTICATED:
+        print "Error: Server could not authenticate user"
         return (UploadReturn.USER_NOT_AUTHENTICATED, None)
-    elif error_code == UploadResults.SUCCESS:
-        return (UploadReturn.SUCCESS, response_list)
+    elif error_code == UploadResults.INTERNAL_ERROR:
+        print "Error: Internal server error"
+        return (UploadReturn.INTERNAL_ERROR, None)
     else:
         print "Unknown response code %d" % error_code
         return (None, None)
 
 def bincrowd_upload_internal(ea=None):
     """ Uploads information for the function at the given ea.
+    
+        Parameters:
+          - ea : The ea of the function whose information is uploaded.
+          
+        Returns:
+          A pair of (error code, response list) where error code is an UploadReturn
+          value that gives information about what happened and response list is a list
+          of responses received for each uploaded function in case the upload was
+          completed successfully.
     """
     
     if not ea:
@@ -707,43 +766,36 @@ def bincrowd_upload_internal(ea=None):
     fn = idaapi.get_func(ea)
     
     if not fn:
-        return (0, 0)
+        return (UploadReturn.NO_FUNCTION_AT_ADDRESS, None)
         
-    return upload_list([fn])
+    (error_code, result) = upload([fn])
+    
+    if error_code == UploadReturn.SUCCESS:
+        if result[0] == 0:
+            print "Upload was successful: Changed existing function"
+        else:
+            print "Upload was successful: Added new function"
 
 def bincrowd_upload(ea=None):
+    """ Uploads information for the function at the given ea.
+    
+        Parameters:
+          - ea : The ea of the function whose information is uploaded.
+          
+        Returns:
+          Nothing.
+    """
     try:
-        print bincrowd_upload_internal(ea)
+        bincrowd_upload_internal(ea)
     except Exception, e:
         print e
-        
-def is_showstopper_upload_return_value(ret_val):
-    """ Determines whether an upload return value is important enough
-        to completely stop and 'Upload All' operation.
-    """
-    return ret_val in [
-        UploadReturn.COULDNT_READ_CONFIG_FILE,
-        UploadReturn.COULDNT_CONNECT_TO_SERVER,
-        UploadReturn.COULDNT_UPLOAD_DATA,
-        UploadReturn.NO_FUNCTION_AT_ADDRESS,
-        UploadReturn.INCOMPLETE_DATA,
-        UploadReturn.INVALID_VERSION_NUMBER,
-        UploadReturn.USER_NOT_AUTHENTICATED
-    ]
         
 def bincrowd_upload_all_internal():
     """ Uploads information about all functions in the IDB.
     """
-    upload_stats = [0, 0, 0, 0, 0, 0, 0]
+    functions_to_upload = map(idaapi.get_func, Functions(0, 0xFFFFFFFF))
     
-    functions = Functions(0, 0xFFFFFFFF)
-    
-    functions_to_upload = []
-    
-    for function_ea in functions:
-        functions_to_upload.append(idaapi.get_func(function_ea))
-
-    (error_code, result_list) = upload_list(functions_to_upload)
+    (error_code, result_list) = upload(functions_to_upload)
     
     total_functions = len(functions_to_upload)
     uploaded_functions = len(result_list)
@@ -756,71 +808,69 @@ def bincrowd_upload_all_internal():
     print "  Changed existing functions: %d (%.02f%%)" % (updated_functions, 100.0 * updated_functions / total_functions)
 
 def bincrowd_upload_all():
+    """ Uploads information about all functions in the IDB.
+    """
     try:
         bincrowd_upload_all_internal()
     except Exception, e:
         print e
 
-MATCHDEGREE_STRINGS = [ "", "High", "Medium", "Low" ]
-
-def formatresults(results, currentNodeCount, currentEdgeCount):
-    """ build formatted strings of results and store in self.list """
-    strlist = []
-    for r in results:
-        degree          = r['match_degree']
-        file            = r['file']           if len(r['file'])       <=26  else r['file'][:23]+'...'
-        name            = r['name']           if len(r['name'])       <=26  else r['name'][:23]+'...'
-        description     = r['description']    if len(r['description'])<=100 else r['description'][:97]+'...'
-        numberOfNodes   = r['number_of_nodes']
-        numberOfEdges   = r['number_of_edges']
-        owner           = r['owner']
-        strlist.append([MATCHDEGREE_STRINGS[degree], file, name, description, "%d (%d)" % (numberOfNodes, numberOfNodes - currentNodeCount), "%d (%d)" % (numberOfEdges, numberOfEdges - currentEdgeCount), owner])
-    return strlist
-        
 class DownloadReturn:
     SUCCESS = 0
     COULDNT_READ_CONFIG_FILE = 1
     COULDNT_RETRIEVE_DATA = 2
     COULDNT_CONNECT_TO_SERVER = 3
-    FUNCTION_TOO_SMALL = 4
-    INCOMPLETE_DATA = 5
-    INVALID_VERSION_NUMBER = 6
-    USER_NOT_AUTHENTICATED = 7
-    NO_MATCHES_FOUND = 8
-    NO_FUNCTION_AT_ADDRESS = 9
+    INCOMPLETE_DATA = 4
+    INVALID_VERSION_NUMBER = 5
+    USER_NOT_AUTHENTICATED = 6
+    INTERNAL_ERROR = 7
     
 def get_import_function_download_params(module, name):
-    """ Returns an argument map for an imported function
+    """ Returns an argument map for an imported function. This map can be sent to the BinCrowd
+        server to describe the imported function.
+        
+        Parameters:
+          - module : The module from which the function was imported.
+          - name   : The name of the imported module.
+          
+        Returns:
+          A map that describes the imported function.
     """
-    
     return {'module' : module, 'name' : name }
 
 def get_regular_function_download_params(fn, skip_small_functions):
-    """ Returns an argument map for a regular function
+    """ Returns an argument map for a regular function. This map can be sent to the BinCrowd
+        server to describe the regular function.
+        
+        Parameters:
+          - fn                   : The function to be described.
+          - skip_small_functions : A flag that says whether small functions should be skipped.
+          
+        Returns:
+          A map that describes the regular function.
     """
     p = proxyGraph(fn.startEA)
-
     e = extract_edge_tuples_from_graph(p)
-    edges = edges_array_to_dict(e)
     
-    if skip_small_functions and len(edges) < 12:
+    if skip_small_functions and len(e) < 12:
         print "Function %s is too small" % get_function_name(fn.startEA)
         return None
     
-    prime = 1
-    
-    for node in p.get_nodes():
-        prime = (prime * node.prime_product) % 2**64
-
-    return {'prime_product' : '%d' % prime, 'edges' : edges }
+    return {'prime_product' : '%d' % calculate_prime_product(p), 'edges' : edges_array_to_dict(e) }
     
 def get_download_params(ea, skip_small_functions):
-    """ Returns an argument for the function at the given address.
-        If there is no function at the given address, None is returned.
+    """ Returns an argument map for a function. This map can be sent to the BinCrowd
+        server to describe the function.
+        
+        Parameters:
+          - ea                   : The ea of the function to be described.
+          - skip_small_functions : A flag that says whether small functions should be skipped.
+          
+        Returns:
+          A map that describes the regular function. If there is no function at the given address,
+          None is returned.
     """
-    fill_imported_functions_if_necessary()
-    
-    imported_function = get_imported_function(imported_functions, ea)
+    imported_function = get_imported_function(ea)
     
     if imported_function:
         return get_import_function_download_params(*imported_function)
@@ -853,6 +903,12 @@ class DownloadResults:
 
 def clean_results(results):
     """ Cleans weird characters from downloaded strings.
+    
+        Parameters:
+          - results : The results received from the BinCrowd server.
+          
+        Returns:
+          Nothing.
     """
     for function_result in results:
         for single_result in function_result:
@@ -881,11 +937,15 @@ def fill_imported_functions():
 def fill_imported_functions_if_necessary():
     """ Fills the global imported_functions variable if it has not yet been filled.
     """
-    if len(imported_functions) == 0:
+    if not imported_functions:
         fill_imported_functions()
             
 def set_normal_information(information, fn):
-    """ Assigns downloaded information to the given function.
+    """ Assigns downloaded information to the given regular function.
+    
+        Parameters:
+          - information : The downloaded function information for one function.
+          - fn          : The function to which the information will be assigned.
     """
     name        = information['name']
     description = information['description']
@@ -933,11 +993,15 @@ def set_normal_information(information, fn):
 
 def get_graph_data(ea):
     """ Finds the number of nodes and edges for the function at the given ea.
-        If that function is an imported function, (0, 0) is returned.
+        
+        Parameters:
+          - ea : The ea of the function whose graph data should be returned.
+          
+        Returns:
+          A pair of (node count, edge count) that describes the graph of the function.
+          If that function is an imported function, (0, 0) is returned.
     """
-    imported_function = get_imported_function(imported_functions, ea)
-    
-    if imported_function:
+    if get_imported_function(ea):
         return (0, 0)
     else:
         fn = idaapi.get_func(ea)
@@ -950,8 +1014,11 @@ def get_graph_data(ea):
         return (len(p.get_nodes()), len(p.get_edges()))
 
 def set_import_information(information, ea):
-    """ Sets the repeatable comment of the imported function at the given ea
-        to whatever information was returnd from the server
+    """ Assigns downloaded information to the given imported function.
+    
+        Parameters:
+          - information : The downloaded function information for one function.
+          - ea          : The ea of the imported function.
     """
     (local_variables, arguments) = information['stack_frame']
             
@@ -965,33 +1032,58 @@ def set_import_information(information, ea):
             
     idaapi.set_cmt(ea, description, True)
     
-def set_information(ea, information):
-    """ Assigns downloaded information to the function at the given ea.
-    """
+def set_information(information, ea):
+    """ Assigns downloaded information to the given function.
     
+        Parameters:
+          - information : The downloaded function information for one function.
+          - ea          : The ea of the imported function.
+    """
     print "Assigning information to function %s" % get_function_name(ea)
     
-    imported_function = get_imported_function(imported_functions, ea)
-        
-    if imported_function:
+    if get_imported_function(ea):
         set_import_information(information, ea)
     else:
         set_normal_information(information, idaapi.get_func(ea))
 
+MATCHDEGREE_STRINGS = [ "", "High", "Medium", "Low" ]
+
+def formatresults(results, currentNodeCount, currentEdgeCount):
+    """ build formatted strings of results and store in self.list """
+    strlist = []
+    for r in results:
+        degree          = r['match_degree']
+        file            = r['file']           if len(r['file'])       <=26  else r['file'][:23]+'...'
+        name            = r['name']           if len(r['name'])       <=26  else r['name'][:23]+'...'
+        description     = r['description']    if len(r['description'])<=100 else r['description'][:97]+'...'
+        numberOfNodes   = r['number_of_nodes']
+        numberOfEdges   = r['number_of_edges']
+        owner           = r['owner']
+        strlist.append([MATCHDEGREE_STRINGS[degree], file, name, description, "%d (%d)" % (numberOfNodes, numberOfNodes - currentNodeCount), "%d (%d)" % (numberOfEdges, numberOfEdges - currentEdgeCount), owner])
+    return strlist
+        
 def bincrowd_download_internal(ea):
+    """ Downloads information for the function at the given ea.
+    
+        Parameters:
+          - ea : The ea of the function to download.
+          
+        Returns:
+          Nothing
+    """
     functions = get_download_params(ea, False)
     
     if not functions:
         return
     
-    (error_code, params) = download_list([functions])
+    (error_code, params) = download([functions])
     
     params = params[0]
     
     if error_code != DownloadReturn.SUCCESS:
         return
         
-    if len(params) == 0:
+    if not params:
         print "No information for function '%s' available" % get_function_name(ea)
         return
         
@@ -1000,12 +1092,17 @@ def bincrowd_download_internal(ea):
     selected_row = c.Show(True)
     
     if selected_row >= 0:
-        set_information(ea, params[selected_row])
+        set_information(params[selected_row], ea)
                 
 def bincrowd_download(ea = None):
     """ Downloads information for the function at the given ea.
-    """
     
+        Parameters:
+          - ea : The ea of the function to download.
+          
+        Returns:
+          Nothing
+    """
     if not ea:
         ea = here()
 
@@ -1015,84 +1112,57 @@ def bincrowd_download(ea = None):
         print e
 
 def get_information_all_functions(zipped_overview):
+    """ Takes a list of (ea, edge_count, downloaded function result) triples and converts
+        that list into a list of equal cardinality that is suitable for displaying to the
+        user.
+        
+        Parameters:
+          - zipped_overview : The input list.
+          
+        Returns:
+          The cleaned up version of the input list.
+    """
     result_list = []
     
     for (ea, edge_count, result) in zipped_overview:
         result_list.append([ea, result['l'] + result['m'] + result['h'], edge_count])
     
-    return sorted(result_list, lambda x, y : y[1] - x[1])
+    return sorted(result_list, lambda x, y : y[2] - x[2])
     
 def get_function_name(ea):
     """ Returns the name of the function at the given address.
+    
+        Parameters:
+          ea : The ea of the function.
+          
+        Returns:
+          The name of the function at the given ea.
     """
-    imported_function = get_imported_function(imported_functions, ea)
+    imported_function = get_imported_function(ea)
     
     if imported_function:
         return imported_function[1] + " (Imported)"
     else:
-        return idc.GetFunctionName(ea)
+        return get_demangled_name(ea)
      
-def get_display_information_all_functions(information, perfect_match_count):
+def get_display_information_all_functions(information):
     """
     Converts information returned from get_information_all_functions and
     turns that information into something that can be displayed in a
     chooser2 dialog.
     """
+    return [[get_function_name(ea), "%d" % count, "%d" % edge_count] for [ea, count, edge_count] in information]
     
-    return [["Apply all top matches", "%d" % perfect_match_count, ""]] + [[get_function_name(ea), "%d" % count, "%d" % edge_count] for [ea, count, edge_count] in information]
-    
-def count_perfect_matches(zipped_overview):
-    perfect_match_count = 0
-    
-    for (ea, edge_count, result) in zipped_overview:
-        perfect_match_count = perfect_match_count + result['h']
-            
-    return perfect_match_count
-    
-def apply_all_perfect_matches(eas, result):
-    counter = 0
-
-    for function_result in result:
-        for single_result in function_result:
-            if single_result['match_degree'] == 1:
-                set_information(eas[counter], single_result)
-                break
-        counter = counter + 1
-
-def download_list(functions):
-
-    uri, user, password = read_config_file()
-    
-    if user == None:
-        print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
-        return (DownloadReturn.COULDNT_READ_CONFIG_FILE, None)
-        
-    parameters = {
-                 'username'       : user,
-                 'password'       : password,
-                 'version'        : CLIENTVERSION,
-                 'functions'      : functions
-                 }
-    print "Downloading function information: %s" % datetime.now()
-    
-    try:
-        rpc_srv = xmlrpclib.ServerProxy(uri, allow_none=True)
-        response = rpc_srv.download(parameters)
-    except Exception, e:
-        print "Error: Could not connect to BinCrowd server"
-        print e
-        return (DownloadReturn.COULDNT_CONNECT_TO_SERVER, None)
-        
-    try:
-        ((error_code, results), method_name) = xmlrpclib.loads(response.encode("utf-8"))
-        clean_results(results)
-        return (DownloadReturn.SUCCESS, results)
-    except Exception, e:
-        print e
-        print results
-        return (DownloadReturn.COULDNT_RETRIEVE_DATA, None)
-        
 def download_overview(functions):
+    """ Downloads an overview of the matches for the given functions.
+    
+        Parameters:
+          - functions : The functions to download the overview for.
+          
+        Returns:
+          A pair of (error code, overview) where error code is a DownloadReturn value that
+          describes what happened and overview is the downloaded overview in case of success.
+    """
 
     uri, user, password = read_config_file()
     
@@ -1119,11 +1189,84 @@ def download_overview(functions):
     print "Parsing returned values: %s" % datetime.now()
     
     try:
-        (results, methodname) = xmlrpclib.loads(response.encode("utf-8"))
-        return (DownloadReturn.SUCCESS, results)
+        ((error_code, overview), methodname) = xmlrpclib.loads(response.encode("utf-8"))
+        
+        if error_code == DownloadResults.SUCCESS:
+            return (DownloadReturn.SUCCESS, overview)
+        elif error_code == DownloadResults.INVALID_VERSION_NUMBER:
+            print "Error: Invalid version number was sent to server"
+            return (DownloadReturn.INVALID_VERSION_NUMBER, overview)
+        elif error_code == DownloadResults.USER_NOT_AUTHENTICATED:
+            print "Error: Server could not authenticate user"
+            return (DownloadReturn.USER_NOT_AUTHENTICATED, overview)
+        elif error_code == DownloadResults.MALFORMED_INPUT:
+            print "Error: Incomplete data was sent to server"
+            return (DownloadReturn.INCOMPLETE_DATA, overview)
+        elif error_code == DownloadResults.INTERNAL_ERROR:
+            print "Error: Internal server error"
+            return (DownloadReturn.INTERNAL_ERROR, overview)
+        else:
+            print "Unknown return code %d" % error_code
     except Exception, e:
         print e
-        print result
+        return (DownloadReturn.COULDNT_RETRIEVE_DATA, None)
+        
+def download(functions):
+    """ Downloads matches for the given functions.
+    
+        Parameters:
+          - functions : The functions to download the matches for.
+          
+        Returns:
+          A pair of (error code, matches) where error code is a DownloadReturn value that
+          describes what happened and matches are the downloaded matches in case of success.
+    """
+
+    uri, user, password = read_config_file()
+    
+    if user == None:
+        print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
+        return (DownloadReturn.COULDNT_READ_CONFIG_FILE, None)
+        
+    parameters = {
+                 'username'       : user,
+                 'password'       : password,
+                 'version'        : CLIENTVERSION,
+                 'functions'      : functions
+                 }
+    print "Downloading function information: %s" % datetime.now()
+    
+    try:
+        rpc_srv = xmlrpclib.ServerProxy(uri, allow_none=True)
+        response = rpc_srv.download(parameters)
+    except Exception, e:
+        print "Error: Could not connect to BinCrowd server"
+        print e
+        return (DownloadReturn.COULDNT_CONNECT_TO_SERVER, None)
+        
+    try:
+        ((error_code, results), method_name) = xmlrpclib.loads(response.encode("utf-8"))
+        
+        if error_code == DownloadResults.SUCCESS:
+            clean_results(results)
+            return (DownloadReturn.SUCCESS, results)
+        elif error_code == DownloadResults.INVALID_VERSION_NUMBER:
+            print "Error: Invalid version number was sent to server"
+            return (DownloadReturn.INVALID_VERSION_NUMBER, overview)
+        elif error_code == DownloadResults.USER_NOT_AUTHENTICATED:
+            print "Error: Server could not authenticate user"
+            return (DownloadReturn.USER_NOT_AUTHENTICATED, overview)
+        elif error_code == DownloadResults.MALFORMED_INPUT:
+            print "Error: Incomplete data was sent to server"
+            return (DownloadReturn.INCOMPLETE_DATA, overview)
+        elif error_code == DownloadResults.INTERNAL_ERROR:
+            print "Error: Internal server error"
+            return (DownloadReturn.INTERNAL_ERROR, overview)
+        else:
+            print "Unknown return code %d" % error_code
+    except Exception, e:
+        print e
+        print results
         return (DownloadReturn.COULDNT_RETRIEVE_DATA, None)
         
 def download_all_internal():
@@ -1131,8 +1274,6 @@ def download_all_internal():
     Downloads information for all functions of the given file and lets
     the user choose what information he wants to accept.
     """
-    
-    fill_imported_functions_if_necessary()
     
     collected_params = []
     eas = []
@@ -1161,7 +1302,7 @@ def download_all_internal():
         if not fn:
             continue
             
-        if get_imported_function(imported_functions, function_ea):
+        if get_imported_function(function_ea):
             continue
             
         params = get_download_params(function_ea, True)
@@ -1193,8 +1334,7 @@ def download_all_internal():
     while True:
         # Let the user pick for what target function he wants to copy information
         all_functions_information = get_information_all_functions(zipped_overview)
-        perfect_match_count = count_perfect_matches(zipped_overview)
-        display_information = get_display_information_all_functions(all_functions_information, perfect_match_count)
+        display_information = get_display_information_all_functions(all_functions_information)
         
         print "Displaying results: %s" % datetime.now()
     
@@ -1204,17 +1344,12 @@ def download_all_internal():
         if selected_function == -1:
             break
             
-        if selected_function == 0:
-            apply_all_perfect_matches(zipped_overview)
-        else:
-            # Correct for the "Apply All" row
-            selected_function = selected_function - 1
-            # Let the user pick for what downloaded information he wants to use for his target function
-            selected_ea = all_functions_information[selected_function][0]
+        # Let the user pick for what downloaded information he wants to use for his target function
+        selected_ea = all_functions_information[selected_function][0]
             
-            idc.Jump(selected_ea)
+        idc.Jump(selected_ea)
 
-            bincrowd_download(selected_ea)
+        bincrowd_download(selected_ea)
 
 def bincrowd_download_all():
     """
