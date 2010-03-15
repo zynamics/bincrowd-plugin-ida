@@ -497,8 +497,7 @@ def get_frame_information(ea):
         description = idc.GetMemberComment(frame, start, True) \
             or idc.GetMemberComment(frame, start, False) or '' #repeatable/non-repeatable
             
-        if description:
-            description = idaapi.idb2scr(description).decode("iso-8859-1")
+        description = idaapi.idb2scr(description).decode("iso-8859-1")
         
         debug_print("%s: %d" % (name, size))
         
@@ -864,7 +863,7 @@ def get_regular_function_download_params(fn, skip_small_functions):
     p = proxyGraph(fn.startEA)
     e = extract_edge_tuples_from_graph(p)
     
-    if skip_small_functions and len(e) < 6:
+    if skip_small_functions and len(e) < 10:
         print "Function %s is too small" % get_function_name(fn.startEA)
         return None
     
@@ -1337,10 +1336,10 @@ def download_all_internal():
     match_quality = result[0]
     function_results = result[1]
     
-    print "Files with most significant matches:"
+    print "Files with highest match scores:"
     
     for (file, match) in match_quality:
-        print "%s: %d" % (file, match)
+        print "%s: %s" % (file, match)
         
     zipped_overview = [(eas[result['i']], edge_counts[result['i']], result) for result in function_results]
     
