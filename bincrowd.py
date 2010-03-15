@@ -72,7 +72,7 @@ class FunctionSelectionDialog(Choose2):
 
 class AllFunctionsSelectionDialog(Choose2):
     def __init__(self, title, items):
-        Choose2.__init__(self, title, [ [ "Function", 20 ], ["Matches", 20], ["Edges", 20] ], Choose2.CH_MODAL)
+        Choose2.__init__(self, title, [ [ "Function", 20 ], ["High", 6], ["Medium", 6], ["Low", 6], ["Edges", 20] ], Choose2.CH_MODAL)
         self.n = 0
         self.items = items
         self.icon = -1
@@ -1141,7 +1141,7 @@ def get_information_all_functions(zipped_overview):
     result_list = []
     
     for (ea, edge_count, result) in zipped_overview:
-        result_list.append([ea, result['l'] + result['m'] + result['h'], edge_count])
+        result_list.append([ea, result['h'], result['m'], result['l'], edge_count])
     
     return sorted(result_list, lambda x, y : y[2] - x[2])
     
@@ -1167,7 +1167,7 @@ def get_display_information_all_functions(information):
     turns that information into something that can be displayed in a
     chooser2 dialog.
     """
-    return [[get_function_name(ea), "%d" % count, "%d" % edge_count] for [ea, count, edge_count] in information]
+    return [[get_function_name(ea), "%d" % high, "%d" % medium, "%d" % low, "%d" % edge_count] for [ea, high, medium, low, edge_count] in information]
     
 def download_overview(functions):
     """ Downloads an overview of the matches for the given functions.
