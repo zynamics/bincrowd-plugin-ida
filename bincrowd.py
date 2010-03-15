@@ -586,7 +586,6 @@ class UploadReturn:
     FUNCTION_TOO_SMALL = 7
     INTERNAL_ERROR = 8
     NO_FUNCTION_AT_ADDRESS = 9
-    SKIPPED_AUTO_GENERATED = 10
     NO_FUNCTIONS_FOUND = 11
         
 def get_regular_function_upload_params(fn):
@@ -609,10 +608,6 @@ def get_regular_function_upload_params(fn):
 
     name = get_function_name(fn.startEA)
     
-    if idaapi.has_dummy_name(idaapi.getFlags(fn.startEA)):
-        print "0x%X: '%s' was not uploaded because it has an auto-generated name." % (fn.startEA, name)
-        return (UploadReturn.SKIPPED_AUTO_GENERATED, None)
-        
     p = proxyGraph(fn.startEA)
     e = extract_edge_tuples_from_graph(p)
 
