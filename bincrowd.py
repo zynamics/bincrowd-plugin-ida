@@ -742,7 +742,7 @@ def upload(functions):
         print "Error: Server could not authenticate user"
         return (UploadReturn.USER_NOT_AUTHENTICATED, None)
     elif error_code == UploadResults.INTERNAL_ERROR:
-        print "Error: Internal server error"
+        print "Error: Internal server error (%s)" % response_list
         return (UploadReturn.INTERNAL_ERROR, None)
     else:
         print "Unknown response code %d" % error_code
@@ -1211,16 +1211,16 @@ def download_overview(functions):
             return (DownloadReturn.SUCCESS, overview)
         elif error_code == DownloadResults.INVALID_VERSION_NUMBER:
             print "Error: Invalid version number was sent to server"
-            return (DownloadReturn.INVALID_VERSION_NUMBER, overview)
+            return (DownloadReturn.INVALID_VERSION_NUMBER, None)
         elif error_code == DownloadResults.USER_NOT_AUTHENTICATED:
             print "Error: Server could not authenticate user"
-            return (DownloadReturn.USER_NOT_AUTHENTICATED, overview)
+            return (DownloadReturn.USER_NOT_AUTHENTICATED, None)
         elif error_code == DownloadResults.MALFORMED_INPUT:
             print "Error: Incomplete data was sent to server"
-            return (DownloadReturn.INCOMPLETE_DATA, overview)
+            return (DownloadReturn.INCOMPLETE_DATA, None)
         elif error_code == DownloadResults.INTERNAL_ERROR:
-            print "Error: Internal server error"
-            return (DownloadReturn.INTERNAL_ERROR, overview)
+            print "Error: Internal server error (%s)" % overview
+            return (DownloadReturn.INTERNAL_ERROR, None)
         else:
             print "Unknown return code %d" % error_code
     except Exception, e:
@@ -1268,16 +1268,16 @@ def download(functions):
             return (DownloadReturn.SUCCESS, results)
         elif error_code == DownloadResults.INVALID_VERSION_NUMBER:
             print "Error: Invalid version number was sent to server"
-            return (DownloadReturn.INVALID_VERSION_NUMBER, overview)
+            return (DownloadReturn.INVALID_VERSION_NUMBER, None)
         elif error_code == DownloadResults.USER_NOT_AUTHENTICATED:
             print "Error: Server could not authenticate user"
-            return (DownloadReturn.USER_NOT_AUTHENTICATED, overview)
+            return (DownloadReturn.USER_NOT_AUTHENTICATED, None)
         elif error_code == DownloadResults.MALFORMED_INPUT:
             print "Error: Incomplete data was sent to server"
-            return (DownloadReturn.INCOMPLETE_DATA, overview)
+            return (DownloadReturn.INCOMPLETE_DATA, None)
         elif error_code == DownloadResults.INTERNAL_ERROR:
-            print "Error: Internal server error"
-            return (DownloadReturn.INTERNAL_ERROR, overview)
+            print "Error: Internal server error (%s)" % results
+            return (DownloadReturn.INTERNAL_ERROR, None)
         else:
             print "Unknown return code %d" % error_code
     except Exception, e:
