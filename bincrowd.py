@@ -8,6 +8,7 @@ import xmlrpclib
 from idaapi import Choose2
 import idautils
 import locale
+from operator import mul
 
 DEBUG = False
 
@@ -158,17 +159,19 @@ g_Primes = (
     7841,7853,7867,7873,7877,7879,7883,7901,7907,7919
 )
 
+def char_to_index(c):
+    return ord(c.lower()) - 0x60
+
+def position_aware_mult(prev, current):
+    return prev * 32 + current
+
 def get_prime1(mnemonic):
-    numbers = [ord(c.lower()) - 0x60 for c in mnemonic.strip()]
-    numbers.reverse()
-    index = reduce(lambda prev,current: prev*32+current, numbers, 0)
+    numbers = reversed(map(char_to_index, mnemonic.strip()))
+    index = reduce(position_aware_mult, numbers, 0)
     return g_Primes[index % len(g_Primes)]
 
-def get_prime( list_of_mnemonics ):
-    initial = 1
-    for mnemonic in list_of_mnemonics:
-        initial = (initial * get_prime1( mnemonic )) % 2**64
-    return initial
+def get_prime(list_of_mnemonics):
+    return reduce(mul, map(get_prime1, list_of_mnemonics), 1) % 2**64
 
 class proxyGraphNode:
     """
@@ -404,7 +407,7 @@ def calculate_prime_product(graph):
 
     for node in graph.get_nodes():
         prime = (prime * node.prime_product) % 2**64
-        
+    
     return prime
 
 def edges_array_to_dict(edges):
