@@ -8,6 +8,7 @@ import xmlrpclib
 from idaapi import Choose2
 import idautils
 import locale
+import string
 from operator import mul
 
 DEBUG = False
@@ -1189,46 +1190,73 @@ def download_overview(functions):
         print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
         return (DownloadReturn.COULDNT_READ_CONFIG_FILE, None)
         
-    parameters = {
-                 'username'       : user,
-                 'password'       : password,
-                 'version'        : CLIENTVERSION,
-                 'functions'      : functions
-                 }
-    print "Downloading function information: %s" % datetime.now()
+    CHUNK_SIZE = 1000
+    chunks = [ functions[x:x+CHUNK_SIZE] for x in range( 0, len(functions), CHUNK_SIZE ) ]
+    file_to_count = {}
+    function_matches = []
+    index = 0
     
-    try:
-        rpc_srv = xmlrpclib.ServerProxy(uri, allow_none=True)
-        response = rpc_srv.download_overview(parameters)
-    except Exception, e:
-        print "Error: Could not connect to BinCrowd server"
-        print e
-        return (DownloadReturn.COULDNT_CONNECT_TO_SERVER, None)
+    for chunk in chunks:
+        parameters = {
+                     'username'       : user,
+                     'password'       : password,
+                     'version'        : CLIENTVERSION,
+                     'functions'      : chunk
+                     }
+        print "Downloading function information for chunk %d: %s" % (index, datetime.now())
         
-    print "Parsing returned values: %s" % datetime.now()
+        try:
+            rpc_srv = xmlrpclib.ServerProxy(uri, allow_none=True)
+            response = rpc_srv.download_overview(parameters)
+        except Exception, e:
+            print "Error: Could not connect to BinCrowd server"
+            print e
+            return (DownloadReturn.COULDNT_CONNECT_TO_SERVER, None)
+            
+        print "Parsing returned values: %s" % datetime.now()
+        
+        try:
+            ((error_code, overview), methodname) = xmlrpclib.loads(response.encode("utf-8"))
+            
+            if error_code == DownloadResults.SUCCESS:
+                # We now need to do some bookkeeping due to the chunking of requests
+                match_quality = overview[0]
+            
+                # The score is additive, luckily
+                for filename, score in match_quality:
+                    if not file_to_count.has_key(filename):
+                        file_to_count[filename] = string.atol(score)
+                    else:
+                        file_to_count[filename] = file_to_count[filename] + string.atol(score, 10)
+
+                # Re-base the indices
+                function_results = overview[1]
+                for func_result in function_results:
+                    func_result['i'] = func_result['i'] + (index * CHUNK_SIZE)
+                function_matches.extend(function_results)
+                index = index + 1
+            elif error_code == DownloadResults.INVALID_VERSION_NUMBER:
+                print "Error: Invalid version number was sent to server"
+                return (DownloadReturn.INVALID_VERSION_NUMBER, None)
+            elif error_code == DownloadResults.USER_NOT_AUTHENTICATED:
+                print "Error: Server could not authenticate user"
+                return (DownloadReturn.USER_NOT_AUTHENTICATED, None)
+            elif error_code == DownloadResults.MALFORMED_INPUT:
+                print "Error: Incomplete data was sent to server"
+                return (DownloadReturn.INCOMPLETE_DATA, None)
+            elif error_code == DownloadResults.INTERNAL_ERROR:
+                print "Error: Internal server error (%s)" % overview
+                return (DownloadReturn.INTERNAL_ERROR, None)
+            else:
+                print "Unknown return code %d" % error_code
+        except Exception, e:
+            print e
+            return (DownloadReturn.COULDNT_RETRIEVE_DATA, None)
     
-    try:
-        ((error_code, overview), methodname) = xmlrpclib.loads(response.encode("utf-8"))
-        
-        if error_code == DownloadResults.SUCCESS:
-            return (DownloadReturn.SUCCESS, overview)
-        elif error_code == DownloadResults.INVALID_VERSION_NUMBER:
-            print "Error: Invalid version number was sent to server"
-            return (DownloadReturn.INVALID_VERSION_NUMBER, None)
-        elif error_code == DownloadResults.USER_NOT_AUTHENTICATED:
-            print "Error: Server could not authenticate user"
-            return (DownloadReturn.USER_NOT_AUTHENTICATED, None)
-        elif error_code == DownloadResults.MALFORMED_INPUT:
-            print "Error: Incomplete data was sent to server"
-            return (DownloadReturn.INCOMPLETE_DATA, None)
-        elif error_code == DownloadResults.INTERNAL_ERROR:
-            print "Error: Internal server error (%s)" % overview
-            return (DownloadReturn.INTERNAL_ERROR, None)
-        else:
-            print "Unknown return code %d" % error_code
-    except Exception, e:
-        print e
-        return (DownloadReturn.COULDNT_RETRIEVE_DATA, None)
+    # Ok, we have gotten all the data from the server. Now stitch everything
+    # together again and return the final results
+    match_quality = [ [x[0], "%d" % x[1]] for x in file_to_count.items() ]
+    return (DownloadReturn.SUCCESS, (match_quality, function_matches))
         
 def download(functions):
     """ Downloads matches for the given functions.
