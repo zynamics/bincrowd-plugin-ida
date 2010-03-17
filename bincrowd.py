@@ -1411,7 +1411,11 @@ def bincrowd_download_all():
 """
 REGISTER IDA SHORTCUTS
 """
-    
+
+if idaapi.cvar.batch:
+    bincrowd_upload_all()
+    idc.Exit(0)
+
 print "Registering hotkey %s for bincrowd_upload()"%UPLOADHOTKEY
 idaapi.CompileLine('static _bincrowd_upload() { RunPythonStatement("bincrowd_upload()"); }')
 idc.AddHotkey(UPLOADHOTKEY,"_bincrowd_upload")
