@@ -874,7 +874,7 @@ def get_regular_function_download_params(fn, skip_small_functions):
     if skip_small_functions and len(e) < 10:
         print "Function %s is too small" % get_function_name(fn.startEA)
         return None
-    
+        
     return {'prime_product' : '%d' % calculate_prime_product(p), 'edges' : edges_array_to_dict(e) }
     
 def get_download_params(ea, skip_small_functions):
@@ -1066,7 +1066,7 @@ def set_information(information, ea):
     else:
         set_normal_information(information, idaapi.get_func(ea))
 
-MATCHDEGREE_STRINGS = [ "", "High", "Medium", "Low" ]
+MATCHDEGREE_STRINGS = [ "", "High", "Medium", "Low", "Import" ]
 
 def formatresults(results, currentNodeCount, currentEdgeCount):
     """ build formatted strings of results and store in self.list """
@@ -1349,6 +1349,9 @@ def download_all_internal():
         fn = idaapi.get_func(function_ea)
         
         if not fn:
+            continue
+            
+        if fn.flags & idaapi.FUNC_LIB:
             continue
             
         if get_imported_function(function_ea):
