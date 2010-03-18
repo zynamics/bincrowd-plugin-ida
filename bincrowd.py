@@ -1255,7 +1255,9 @@ def download_overview(functions):
     
     # Ok, we have gotten all the data from the server. Now stitch everything
     # together again and return the final results
-    match_quality = [ [x[0], "%d" % x[1]] for x in file_to_count.items() ]
+    sorted_match_quality = sorted(file_to_count.items(), key=lambda x: x[1], reverse=True)
+    match_quality = [ [file, "%d" % hits] for (file, hits) in sorted_match_quality ]
+
     return (DownloadReturn.SUCCESS, (match_quality, function_matches))
         
 def download(functions):
