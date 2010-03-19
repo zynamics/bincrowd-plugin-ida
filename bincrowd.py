@@ -1000,7 +1000,7 @@ def set_normal_information(information, fn):
                     
                 name = total[index]['name']
                 
-                if name in [" r", " s"]:
+                if idc.GetMemberName(frame, start) in [" r", " s"]:
                     # Skip return address and base pointer
                     start += size
                     continue
