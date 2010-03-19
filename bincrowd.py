@@ -871,7 +871,7 @@ def get_regular_function_download_params(fn, skip_small_functions):
     p = proxyGraph(fn.startEA)
     e = extract_edge_tuples_from_graph(p)
     
-    if skip_small_functions and len(e) < 10:
+    if skip_small_functions and len(e) <= 8:
         print "Function %s is too small" % get_function_name(fn.startEA)
         return None
         
@@ -1255,7 +1255,7 @@ def download_overview(functions):
     
     # Ok, we have gotten all the data from the server. Now stitch everything
     # together again and return the final results
-    sorted_match_quality = sorted(file_to_count.items(), key=lambda x: x[1], reverse=True)
+    sorted_match_quality = sorted(file_to_count.items(), key=lambda x: x[1])
     match_quality = [ [file, "%d" % hits] for (file, hits) in sorted_match_quality ]
 
     return (DownloadReturn.SUCCESS, (match_quality, function_matches))
