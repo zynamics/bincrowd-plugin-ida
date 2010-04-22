@@ -726,6 +726,7 @@ def upload(functions):
                  'functions'             : parameters
                  }
     
+    # Ok, cut the upload into small chunks
     try:
         (error_code, response_list) = rpc_srv.upload(parameters)
     except Exception, e:
@@ -813,8 +814,23 @@ def bincrowd_upload_all_internal():
 #        fn = idaapi.get_func(ea)
 #        functions_to_upload.append(fn)
         functions_to_upload.append(MyFunction(ea))
-        
-    (error_code, result_list) = upload(functions_to_upload)
+    
+    result_list = []
+    
+    temp_last = len(functions_to_upload)
+    temp_range = range( 0, len(functions_to_upload), 1000 )
+    for i in range( 1, len(temp_range)):
+        lower = temp_range[i-1]
+        upper = temp_range[i]
+        print "Uploading functions %d to %d" % (lower, upper)
+        (error_code, tempresults) = upload( functions_to_upload[ lower : upper ] )
+        result_list = result_list + tempresults
+    print "Uploading last chunk"
+    if len(temp_range) > 0:
+        (error_code, tempresults) = upload( functions_to_upload[ temp_range[-1]:] )
+    else:
+        (error_code, tempresults) = upload( functions_to_upload[0:] )
+    result_list = result_list + tempresults
     
     total_functions = len(functions_to_upload)
     uploaded_functions = len(result_list)
@@ -871,10 +887,10 @@ def get_regular_function_download_params(fn, skip_small_functions):
     p = proxyGraph(fn.startEA)
     e = extract_edge_tuples_from_graph(p)
     
-    if skip_small_functions and len(e) <= 8:
+    if skip_small_functions and len(e) < 10:
         print "Function %s is too small" % get_function_name(fn.startEA)
         return None
-        
+    
     return {'prime_product' : '%d' % calculate_prime_product(p), 'edges' : edges_array_to_dict(e) }
     
 def get_download_params(ea, skip_small_functions):
@@ -1000,7 +1016,7 @@ def set_normal_information(information, fn):
                     
                 name = total[index]['name']
                 
-                if idc.GetMemberName(frame, start) in [" r", " s"]:
+                if name in [" r", " s"]:
                     # Skip return address and base pointer
                     start += size
                     continue
@@ -1066,7 +1082,7 @@ def set_information(information, ea):
     else:
         set_normal_information(information, idaapi.get_func(ea))
 
-MATCHDEGREE_STRINGS = [ "", "High", "Medium", "Low", "Import" ]
+MATCHDEGREE_STRINGS = [ "", "High", "Medium", "Low" ]
 
 def formatresults(results, currentNodeCount, currentEdgeCount):
     """ build formatted strings of results and store in self.list """
@@ -1149,6 +1165,7 @@ def get_information_all_functions(zipped_overview):
     
     return sorted(result_list, lambda x, y : y[4] - x[4])
     
+
 def get_function_name(ea):
     """ Returns the name of the function at the given address.
     
@@ -1255,9 +1272,7 @@ def download_overview(functions):
     
     # Ok, we have gotten all the data from the server. Now stitch everything
     # together again and return the final results
-    sorted_match_quality = sorted(file_to_count.items(), key=lambda x: x[1])
-    match_quality = [ [file, "%d" % hits] for (file, hits) in sorted_match_quality ]
-
+    match_quality = [ [x[0], "%d" % x[1]] for x in file_to_count.items() ]
     return (DownloadReturn.SUCCESS, (match_quality, function_matches))
         
 def download(functions):
@@ -1351,9 +1366,6 @@ def download_all_internal():
         if not fn:
             continue
             
-        if fn.flags & idaapi.FUNC_LIB:
-            continue
-            
         if get_imported_function(function_ea):
             continue
             
@@ -1436,3 +1448,4 @@ idc.AddHotkey(UPLOADALLHOTKEY,"_bincrowd_upload_all")
 print "Registering hotkey %s for _bincrowd_download_all()"%DOWNLOADALLHOTKEY
 idaapi.CompileLine('static _bincrowd_download_all() { RunPythonStatement("bincrowd_download_all()"); }')
 idc.AddHotkey(DOWNLOADALLHOTKEY,"_bincrowd_download_all")
+
