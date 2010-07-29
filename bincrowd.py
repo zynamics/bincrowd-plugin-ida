@@ -1453,7 +1453,7 @@ print "Registering hotkey %s for bincrowd_upload_all()"%UPLOADALLHOTKEY
 idaapi.CompileLine('static _bincrowd_upload_all() { RunPythonStatement("bincrowd_upload_all()"); }')
 idc.AddHotkey(UPLOADALLHOTKEY,"_bincrowd_upload_all")
 
-print "Registering hotkey %s for _bincrowd_download_all()"%DOWNLOADALLHOTKEY
+print "Registering hotkey %s for bincrowd_download_all()"%DOWNLOADALLHOTKEY
 idaapi.CompileLine('static _bincrowd_download_all() { RunPythonStatement("bincrowd_download_all()"); }')
 idc.AddHotkey(DOWNLOADALLHOTKEY,"_bincrowd_download_all")
 
