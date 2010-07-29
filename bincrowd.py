@@ -825,6 +825,10 @@ def bincrowd_upload_all_internal():
         upper = temp_range[i]
         print "Uploading functions %d to %d" % (lower, upper)
         (error_code, tempresults) = upload( functions_to_upload[ lower : upper ] )
+        
+        if error_code != UploadReturn.SUCCESS:
+            return
+        
         result_list = result_list + tempresults
     print "Uploading last chunk"
     if len(temp_range) > 0:
@@ -1115,11 +1119,11 @@ def bincrowd_download_internal(ea):
     
     (error_code, params) = download([functions])
     
-    params = params[0]
-    
     if error_code != DownloadReturn.SUCCESS:
         return
-        
+    
+    params = params[0]
+    
     if not params:
         print "No information for function '%s' available" % get_function_name(ea)
         return
@@ -1383,6 +1387,9 @@ def download_all_internal():
         edge_counts.append(len(params['edges']))
 
     (error_code, result) = download_overview(collected_params)
+    
+    if error_code != DownloadReturn.SUCCESS:
+        return
     
     print "Processing downloaded information: %s" % datetime.now()
     
