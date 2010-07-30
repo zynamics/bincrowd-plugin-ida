@@ -608,12 +608,6 @@ def get_regular_function_upload_params(fn):
           is a description of the function that can be sent to the BinCrowd server.
     """
     
-    uri, user, password = read_config_file()
-    
-    if user == None:
-        print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
-        return (UploadReturn.COULDNT_READ_CONFIG_FILE, None)
-
     name = get_function_name(fn.startEA)
     
     p = proxyGraph(fn.startEA)
@@ -689,6 +683,12 @@ def upload(functions):
           completed successfully.
     """
 
+    uri, user, password = read_config_file()
+    
+    if user == None:
+        print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
+        return (UploadReturn.COULDNT_READ_CONFIG_FILE, None)
+    
     parameters = []
     for fn in functions:
         (error_code, params) = get_regular_function_upload_params(fn)
@@ -699,8 +699,6 @@ def upload(functions):
     if not parameters:
       return (UploadReturn.NO_FUNCTIONS_FOUND, None)
             
-    uri, user, password = read_config_file()
-    
     print "Starting upload: %s" % datetime.now()
     
     try:
