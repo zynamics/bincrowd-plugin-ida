@@ -828,11 +828,16 @@ def bincrowd_upload_all_internal():
             return
         
         result_list = result_list + tempresults
+
     print "Uploading last chunk"
     if len(temp_range) > 0:
         (error_code, tempresults) = upload( functions_to_upload[ temp_range[-1]:] )
     else:
         (error_code, tempresults) = upload( functions_to_upload[0:] )
+
+    if error_code != UploadReturn.SUCCESS:
+        return
+
     result_list = result_list + tempresults
     
     total_functions = len(functions_to_upload)
