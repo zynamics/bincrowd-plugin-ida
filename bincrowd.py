@@ -75,7 +75,7 @@ class FunctionSelectionDialog(Choose2):
 
 class AllFunctionsSelectionDialog(Choose2):
     def __init__(self, title, items):
-        Choose2.__init__(self, title, [ [ "Function", 20 ], ["High", 6], ["Medium", 6], ["Low", 6], ["Edges", 20] ], Choose2.CH_MODAL)
+        Choose2.__init__(self, title, [ [ "Function", 20 ], ["High", 6 | Choose2.CHCOL_DEC], ["Medium", 6 | Choose2.CHCOL_DEC], ["Low", 6 | Choose2.CHCOL_DEC], ["Edges", 20 | Choose2.CHCOL_DEC] ], Choose2.CH_MODAL)
         self.n = 0
         self.items = items
         self.icon = -1
