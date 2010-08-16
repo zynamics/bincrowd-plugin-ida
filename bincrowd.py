@@ -1090,7 +1090,7 @@ def set_information(information, ea):
     else:
         set_normal_information(information, idaapi.get_func(ea))
 
-MATCHDEGREE_STRINGS = [ "", "High", "Medium", "Low" ]
+MATCHDEGREE_STRINGS = [ "", "High", "Medium", "Low", "High" ]
 
 def formatresults(results, currentNodeCount, currentEdgeCount):
     """ build formatted strings of results and store in self.list """
@@ -1186,7 +1186,7 @@ def get_function_name(ea):
     imported_function = get_imported_function(ea)
 
     if imported_function:
-        return imported_function[1] + " (Imported)"
+        return imported_function[1] #+ " (Imported)"
     else:
         return get_demangled_name(ea)
 
