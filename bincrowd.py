@@ -17,11 +17,14 @@ DEBUG = False
 """
 BINCROWD PARAMETERS
 """
-CLIENTVERSION = "1"
+CLIENTVERSION = 2
+RESULTS_PER_PAGE = 25
 UPLOADHOTKEY = "Ctrl-1"
 DOWNLOADHOTKEY = "Ctrl-2"
 UPLOADALLHOTKEY = "Ctrl-3"
 DOWNLOADALLHOTKEY = "Ctrl-4"
+
+bincrowd = None
 
 # We have to get the script directory globally, it is not set
 # anymore when the script is evaluated through the hotkeys.
@@ -32,10 +35,12 @@ def debug_print(string):
         print string
 
 class FunctionSelectionDialog(Choose2):
-    def __init__(self, title, items):
+    def __init__(self, title, items, next_page):
         Choose2.__init__(self, title, [ ["Match Quality", 10], [ "File", 20 ], ["Function", 20], ["Description", 30], ["Nodes", 8], ["Edges", 8], ["Author", 20] ], Choose2.CH_MODAL)
         self.n = 0
         self.items = items
+        if next_page:
+            self.items.append(["next", "next", "Load more results", "Load more results", "next", "next", "next"])
         self.icon = -1
         self.selcount = 0
         self.popup_names = []
@@ -583,19 +588,6 @@ def get_processor_name(inf):
     else:
         return inf.procName
 
-class UploadReturn:
-    SUCCESS = 0
-    COULDNT_READ_CONFIG_FILE = 1
-    COULDNT_CONNECT_TO_SERVER = 2
-    COULDNT_UPLOAD_DATA = 3
-    INCOMPLETE_DATA = 4
-    INVALID_VERSION_NUMBER = 5
-    USER_NOT_AUTHENTICATED = 6
-    FUNCTION_TOO_SMALL = 7
-    INTERNAL_ERROR = 8
-    NO_FUNCTION_AT_ADDRESS = 9
-    NO_FUNCTIONS_FOUND = 11
-
 def get_regular_function_upload_params(fn):
     """ Calculates the parameters to be sent when the given function is uploaded
 
@@ -603,9 +595,8 @@ def get_regular_function_upload_params(fn):
           - fn : The function for which the upload parameters are generated.
 
         Returns:
-          A pair of (error code, function description) where error code describes
-          whether the parameter generation was successful and function description
-          is a description of the function that can be sent to the BinCrowd server.
+          None, if an error occured. Otherwise a description of the function that
+          can be sent to the BinCrowd server.
     """
 
     name = get_function_name(fn.startEA)
@@ -615,7 +606,7 @@ def get_regular_function_upload_params(fn):
 
     if not e:
         print "0x%X: '%s' was not uploaded because it is too small." % (fn.startEA, name)
-        return (UploadReturn.FUNCTION_TOO_SMALL, None)
+        return None
 
     edges = edges_array_to_dict(e)
     prime = calculate_prime_product(p)
@@ -637,38 +628,20 @@ def get_regular_function_upload_params(fn):
 
     # Handle optional parameters.
     functionInformation = {
-                'base_address'              : idaapi.get_imagebase(),
-                'rva'                       : fn.startEA - idaapi.get_imagebase(),
-                'processor'                 : processor,
-                'language'                  : idaapi.get_compiler_name(inf.cc.id),
-                'number_of_nodes'           : "%d" % number_of_nodes
+                'base_address'      : idaapi.get_imagebase(),
+                'rva'               : fn.startEA - idaapi.get_imagebase(),
+                'processor'         : processor,
+                'language'          : idaapi.get_compiler_name(inf.cc.id),
+                'number_of_nodes'   : "%d" % number_of_nodes
                 }
 
-    return (0, {'name'                  : name,
-             'description'           : description,
-             'prime_product'         : '%d' % prime,
-             'edges'                 : edges,
-             'function_information'  : functionInformation,
-             'stack_frame'           : stackFrame
-    })
-
-class UploadResults:
-    """ Contains all possible return values of the upload function.
-    """
-    # Returned if the upload process completed successfully.
-    SUCCESS = 0
-
-    # Returned if client and server versions are incompatible.
-    INVALID_VERSION_NUMBER = 1
-
-    # Returned if the provided login credentials could not be used to authenticate the user.
-    USER_NOT_AUTHENTICATED = 2
-
-    # Returned if the data sent from the client to the server was malformed.
-    MALFORMED_INPUT = 3
-
-    # Returned if an unexpected error happened on the server
-    INTERNAL_ERROR = 4
+    return {'name'                  : name,
+            'description'           : description,
+            'prime_product'         : '%d' % prime,
+            'edges'                 : edges,
+            'function_information'  : functionInformation,
+            'stack_frame'           : stackFrame
+    }
 
 def upload(functions):
     """ Uploads information about a list of functions to the BinCrowd server.
@@ -677,27 +650,25 @@ def upload(functions):
           - functions : The functions whose information should be uploaded.
 
         Returns:
-          A pair of (error code, response list) where error code is an UploadReturn
-          value that gives information about what happened and response list is a list
-          of responses received for each uploaded function in case the upload was
-          completed successfully.
+          None, if an error occured. Otherwise, a list of responses received
+          for each uploaded function in case the upload was completed
+          successfully.
     """
 
-    uri, user, password = read_config_file()
+    uri, username, password = get_user_credentials()
 
-    if user == None:
-        print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
-        return (UploadReturn.COULDNT_READ_CONFIG_FILE, None)
+    if not username:
+        return None
 
-    parameters = []
+    function_descriptions = []
     for fn in functions:
-        (error_code, params) = get_regular_function_upload_params(fn)
+        params = get_regular_function_upload_params(fn)
 
         if params:
-            parameters.append(params)
+            function_descriptions.append(params)
 
-    if not parameters:
-      return (UploadReturn.NO_FUNCTIONS_FOUND, None)
+    if not function_descriptions:
+        return None
 
     print "Starting upload: %s" % datetime.now()
 
@@ -705,52 +676,40 @@ def upload(functions):
         rpc_srv = xmlrpclib.ServerProxy(uri, allow_none=True)
     except:
         print "Error: Could not connect to BinCrowd server"
-        return (UploadReturn.COULDNT_CONNECT_TO_SERVER, None)
+        return None
 
     md5 = idc.GetInputMD5().lower()
     inf = idaapi.get_inf_structure()
 
     fileInformation = {
-                'hash_md5'                 : md5,
-                'name'                     : idc.GetInputFile(),
-                'description'              : '',
-                'operating_system'          : '%d (index defined in libfuncs.hpp?)' % inf.ostype,
+                'hash_md5'              : md5,
+                'name'                  : idc.GetInputFile(),
+                'description'           : '',
+                'operating_system'      : '%d (index defined in libfuncs.hpp?)' % inf.ostype,
                 }
 
-    parameters = {
-                 'username'              : user,
-                 'password'              : password,
-                 'version'               : CLIENTVERSION,
-                 'file_information'      : fileInformation,
-                 'functions'             : parameters
-                 }
+    arguments = {
+                'file_information'      : fileInformation,
+                'functions'             : function_descriptions,
+                }
+
+    parameters = [username, password, CLIENTVERSION, arguments]
 
     # Ok, cut the upload into small chunks
     try:
-        (error_code, response_list) = rpc_srv.upload(parameters)
+        response = rpc_srv.upload_functions(*parameters)
+
+    except xmlrpclib.Fault, f:
+        print "Error: Server returned error code %s (%s)" % (f.faultCode, f.faultString)
+        return None
+
     except Exception, e:
         print e
         print "Error: Could not upload data"
-        return (UploadReturn.COULDNT_UPLOAD_DATA, None)
+        return None
 
-    if error_code == UploadResults.SUCCESS:
-        print "Upload complete: %s" % datetime.now()
-        return (UploadReturn.SUCCESS, response_list)
-    elif error_code == UploadResults.MALFORMED_INPUT:
-        print "Error: Incomplete data was sent to server"
-        return (UploadReturn.INCOMPLETE_DATA, None)
-    elif error_code == UploadResults.INVALID_VERSION_NUMBER:
-        print "Error: Invalid version number was sent to server"
-        return (UploadReturn.INVALID_VERSION_NUMBER, None)
-    elif error_code == UploadResults.USER_NOT_AUTHENTICATED:
-        print "Error: Server could not authenticate user"
-        return (UploadReturn.USER_NOT_AUTHENTICATED, None)
-    elif error_code == UploadResults.INTERNAL_ERROR:
-        print "Error: Internal server error (%s)" % response_list
-        return (UploadReturn.INTERNAL_ERROR, None)
-    else:
-        print "Unknown response code %d" % error_code
-        return (None, None)
+    print "Upload complete: %s" % datetime.now()
+    return response['results']
 
 def bincrowd_upload_internal(ea=None):
     """ Uploads information for the function at the given ea.
@@ -759,10 +718,9 @@ def bincrowd_upload_internal(ea=None):
           - ea : The ea of the function whose information is uploaded.
 
         Returns:
-          A pair of (error code, response list) where error code is an UploadReturn
-          value that gives information about what happened and response list is a list
-          of responses received for each uploaded function in case the upload was
-          completed successfully.
+          None, if an error occured. Otherwise, a list of responses received
+          for each uploaded function in case the upload was completed
+          successfully.
     """
 
     if not ea:
@@ -771,11 +729,12 @@ def bincrowd_upload_internal(ea=None):
     fn = idaapi.get_func(ea)
 
     if not fn:
-        return (UploadReturn.NO_FUNCTION_AT_ADDRESS, None)
+        print "No function at this address."
+        return
 
-    (error_code, result) = upload([fn])
+    result = upload([fn])
 
-    if error_code == UploadReturn.SUCCESS:
+    if result:
         if result[0] == 0:
             print "Upload was successful: Changed existing function"
         else:
@@ -822,20 +781,20 @@ def bincrowd_upload_all_internal():
         lower = temp_range[i-1]
         upper = temp_range[i]
         print "Uploading functions %d to %d" % (lower, upper)
-        (error_code, tempresults) = upload( functions_to_upload[ lower : upper ] )
+        tempresults = upload( functions_to_upload[ lower : upper ] )
 
-        if error_code != UploadReturn.SUCCESS:
+        if not tempresults:
             return
 
         result_list = result_list + tempresults
 
     print "Uploading last chunk"
     if len(temp_range) > 0:
-        (error_code, tempresults) = upload( functions_to_upload[ temp_range[-1]:] )
+        tempresults = upload( functions_to_upload[ temp_range[-1]:] )
     else:
-        (error_code, tempresults) = upload( functions_to_upload[0:] )
+        tempresults = upload( functions_to_upload[0:] )
 
-    if error_code != UploadReturn.SUCCESS:
+    if not tempresults:
         return
 
     result_list = result_list + tempresults
@@ -857,16 +816,6 @@ def bincrowd_upload_all():
         bincrowd_upload_all_internal()
     except Exception, e:
         print e
-
-class DownloadReturn:
-    SUCCESS = 0
-    COULDNT_READ_CONFIG_FILE = 1
-    COULDNT_RETRIEVE_DATA = 2
-    COULDNT_CONNECT_TO_SERVER = 3
-    INCOMPLETE_DATA = 4
-    INVALID_VERSION_NUMBER = 5
-    USER_NOT_AUTHENTICATED = 6
-    INTERNAL_ERROR = 7
 
 def get_import_function_download_params(module, name):
     """ Returns an argument map for an imported function. This map can be sent to the BinCrowd
@@ -910,39 +859,23 @@ def get_download_params(ea, skip_small_functions):
           - skip_small_functions : A flag that says whether small functions should be skipped.
 
         Returns:
-          A map that describes the regular function. If there is no function at the given address,
-          None is returned.
+          A pair of (import, function description) where 'import' is True if
+          the function at 'ea' is an imported function. 'function description'
+          is a map that describes the regular function. If there is no function
+          at the given address, None is returned.
     """
     imported_function = get_imported_function(ea)
 
     if imported_function:
-        return get_import_function_download_params(*imported_function)
+        return (True, get_import_function_download_params(*imported_function))
 
     fn = idaapi.get_func(ea)
 
     if fn:
-        return get_regular_function_download_params(fn, skip_small_functions)
+        params = get_regular_function_download_params(fn, skip_small_functions)
+        return (False, params) if params else None
 
     return None
-
-class DownloadResults:
-    """ Contains all possible return values of the download function.
-    """
-
-    # Returned if the download process completed successfully.
-    SUCCESS = 0
-
-    # Returned if client and server versions are incompatible.
-    INVALID_VERSION_NUMBER = 1
-
-    # Returned if the provided login credentials could not be used to authenticate the user.
-    USER_NOT_AUTHENTICATED = 2
-
-    # Returned if the data sent from the client to the server was malformed.
-    MALFORMED_INPUT = 3
-
-    # Returned if an unexpected error happened on the server
-    INTERNAL_ERROR = 4
 
 def clean_results(results):
     """ Cleans weird characters from downloaded strings.
@@ -953,14 +886,13 @@ def clean_results(results):
         Returns:
           Nothing.
     """
-    for function_result in results:
-        for single_result in function_result:
-            for k, v in single_result.items():
-                if type(v) == type(u""):
-                    single_result[k] = idaapi.scr2idb(v.encode("iso-8859-1", "ignore"))
-                if type(v) == type([]):
-                    clean_results([v[0]])
-                    clean_results([v[1]])
+    for single_result in results:
+        for k, v in single_result.items():
+            if type(v) == type(u""):
+                single_result[k] = idaapi.scr2idb(v.encode("iso-8859-1", "ignore"))
+            if type(v) == type([]):
+                clean_results(v[0])
+                clean_results(v[1])
 
 imported_functions = []
 
@@ -1115,28 +1047,41 @@ def bincrowd_download_internal(ea):
         Returns:
           Nothing
     """
-    functions = get_download_params(ea, False)
+    value = get_download_params(ea, False)
 
-    if not functions:
+    if not value:
         return
 
-    (error_code, params) = download([functions])
+    (imported, function) = value
 
-    if error_code != DownloadReturn.SUCCESS:
-        return
+    start = 0
 
-    params = params[0]
+    while True:
+        if imported:
+            results = get_import_matches(function)
+        else:
+            results = get_function_matches(function, start, RESULTS_PER_PAGE)
 
-    if not params:
-        print "No information for function '%s' available" % get_function_name(ea)
-        return
+        if not results:
+            return
 
-    nodes, edges = get_graph_data(ea)
-    c = FunctionSelectionDialog("Retrieved Function Information", formatresults(params, nodes, edges))
-    selected_row = c.Show(True)
+        matches = results['matches']
+        more = results['more'] if results.has_key('more') else False
 
-    if selected_row >= 0:
-        set_information(params[selected_row], ea)
+        if not matches:
+            print "No information for function '%s' available" % get_function_name(ea)
+            return
+
+        nodes, edges = get_graph_data(ea)
+        c = FunctionSelectionDialog("Retrieved Function Information", formatresults(matches, nodes, edges), more)
+        selected_row = c.Show(True)
+
+        if selected_row == len(matches):
+            start = start + selected_row
+        else:
+            if selected_row >= 0:
+                set_information(matches[selected_row], ea)
+            return
 
 def bincrowd_download(ea = None):
     """ Downloads information for the function at the given ea.
@@ -1205,15 +1150,13 @@ def download_overview(functions):
           - functions : The functions to download the overview for.
 
         Returns:
-          A pair of (error code, overview) where error code is a DownloadReturn value that
-          describes what happened and overview is the downloaded overview in case of success.
+          None, if an error occured. Otherwise, a tuple of (match quality, function matches).
     """
 
-    uri, user, password = read_config_file()
+    uri, username, password = get_user_credentials()
 
-    if user == None:
-        print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
-        return (DownloadReturn.COULDNT_READ_CONFIG_FILE, None)
+    if not username:
+        return None
 
     CHUNK_SIZE = 1000
     chunks = [ functions[x:x+CHUNK_SIZE] for x in range( 0, len(functions), CHUNK_SIZE ) ]
@@ -1222,124 +1165,123 @@ def download_overview(functions):
     index = 0
 
     for chunk in chunks:
-        parameters = {
-                     'username'       : user,
-                     'password'       : password,
-                     'version'        : CLIENTVERSION,
-                     'functions'      : chunk
-                     }
+        arguments = {
+                    'functions': chunk
+                    }
+        parameters = [username, password, CLIENTVERSION, arguments]
         print "Downloading function information for chunk %d: %s" % (index, datetime.now())
 
         try:
             rpc_srv = xmlrpclib.ServerProxy(uri, allow_none=True)
-            response = rpc_srv.download_overview(parameters)
+            response = rpc_srv.get_functions_overview(*parameters)
+
+        except xmlrpclib.Fault, f:
+            print "Error: Server returned error code %s (%s)" % (f.faultCode, f.faultString)
+            return None
+
         except Exception, e:
             print "Error: Could not connect to BinCrowd server"
             print e
-            return (DownloadReturn.COULDNT_CONNECT_TO_SERVER, None)
+            return None
 
         print "Parsing returned values: %s" % datetime.now()
 
         try:
-            ((error_code, overview), methodname) = xmlrpclib.loads(response.encode("utf-8"))
+            match_quality = response['file_matches']
 
-            if error_code == DownloadResults.SUCCESS:
-                # We now need to do some bookkeeping due to the chunking of requests
-                match_quality = overview[0]
+            # The score is additive, luckily
+            for filename, score in match_quality:
+                if not file_to_count.has_key(filename):
+                    file_to_count[filename] = string.atol(score)
+                else:
+                    file_to_count[filename] = file_to_count[filename] + string.atol(score, 10)
 
-                # The score is additive, luckily
-                for filename, score in match_quality:
-                    if not file_to_count.has_key(filename):
-                        file_to_count[filename] = string.atol(score)
-                    else:
-                        file_to_count[filename] = file_to_count[filename] + string.atol(score, 10)
+            # Re-base the indices
+            function_results = response['match_counts']
+            for func_result in function_results:
+                func_result['i'] = func_result['i'] + (index * CHUNK_SIZE)
 
-                # Re-base the indices
-                function_results = overview[1]
-                for func_result in function_results:
-                    func_result['i'] = func_result['i'] + (index * CHUNK_SIZE)
-                function_matches.extend(function_results)
-                index = index + 1
-            elif error_code == DownloadResults.INVALID_VERSION_NUMBER:
-                print "Error: Invalid version number was sent to server"
-                return (DownloadReturn.INVALID_VERSION_NUMBER, None)
-            elif error_code == DownloadResults.USER_NOT_AUTHENTICATED:
-                print "Error: Server could not authenticate user"
-                return (DownloadReturn.USER_NOT_AUTHENTICATED, None)
-            elif error_code == DownloadResults.MALFORMED_INPUT:
-                print "Error: Incomplete data was sent to server"
-                return (DownloadReturn.INCOMPLETE_DATA, None)
-            elif error_code == DownloadResults.INTERNAL_ERROR:
-                print "Error: Internal server error (%s)" % overview
-                return (DownloadReturn.INTERNAL_ERROR, None)
-            else:
-                print "Unknown return code %d" % error_code
+            function_matches.extend(function_results)
+            index = index + 1
+
         except Exception, e:
             print e
-            return (DownloadReturn.COULDNT_RETRIEVE_DATA, None)
+            return None
 
     # Ok, we have gotten all the data from the server. Now stitch everything
     # together again and return the final results
     match_quality = [ [x[0], "%d" % x[1]] for x in file_to_count.items() ]
-    return (DownloadReturn.SUCCESS, (match_quality, function_matches))
+    return (match_quality, function_matches)
 
-def download(functions):
-    """ Downloads matches for the given functions.
+def get_function_matches(function, start, max_results):
+    """ Downloads matches for the given function.
 
         Parameters:
-          - functions : The functions to download the matches for.
+          - function : The function to download the matches for.
 
         Returns:
-          A pair of (error code, matches) where error code is a DownloadReturn value that
-          describes what happened and matches are the downloaded matches in case of success.
+          None, if an error occured. Otherwise, the downloaded matches.
     """
 
-    uri, user, password = read_config_file()
+    uri, username, password = get_user_credentials()
 
-    if user == None:
-        print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
-        return (DownloadReturn.COULDNT_READ_CONFIG_FILE, None)
+    if not username:
+        return None
 
-    parameters = {
-                 'username'       : user,
-                 'password'       : password,
-                 'version'        : CLIENTVERSION,
-                 'functions'      : functions
-                 }
+    arguments = {
+                'function'       : function,
+                'start'          : start,
+                'max_results'    : max_results
+                }
+
+    parameters = [username, password, CLIENTVERSION, arguments]
+
     print "Downloading function information: %s" % datetime.now()
 
     try:
         rpc_srv = xmlrpclib.ServerProxy(uri, allow_none=True)
-        response = rpc_srv.download(parameters)
+        results = rpc_srv.get_function_matches(*parameters)
+
+        clean_results(results['matches'])
+        return results
+
+    except xmlrpclib.Fault, f:
+        print "Error: Server returned error code %s (%s)" % (f.faultCode, f.faultString)
+
     except Exception, e:
         print "Error: Could not connect to BinCrowd server"
         print e
-        return (DownloadReturn.COULDNT_CONNECT_TO_SERVER, None)
+
+    return None
+
+def get_import_matches(import_name):
+    uri, username, password = get_user_credentials()
+
+    if not username:
+        return None
+
+    arguments = {
+                'import': import_name
+                }
+    parameters = [username, password, CLIENTVERSION, arguments]
+
+    print "Downloading function information: %s" % datetime.now()
 
     try:
-        ((error_code, results), method_name) = xmlrpclib.loads(response.encode("utf-8"))
+        rpc_srv = xmlrpclib.ServerProxy(uri, allow_none=True)
+        results = rpc_srv.get_import_matches(*parameters)
 
-        if error_code == DownloadResults.SUCCESS:
-            clean_results(results)
-            return (DownloadReturn.SUCCESS, results)
-        elif error_code == DownloadResults.INVALID_VERSION_NUMBER:
-            print "Error: Invalid version number was sent to server"
-            return (DownloadReturn.INVALID_VERSION_NUMBER, None)
-        elif error_code == DownloadResults.USER_NOT_AUTHENTICATED:
-            print "Error: Server could not authenticate user"
-            return (DownloadReturn.USER_NOT_AUTHENTICATED, None)
-        elif error_code == DownloadResults.MALFORMED_INPUT:
-            print "Error: Incomplete data was sent to server"
-            return (DownloadReturn.INCOMPLETE_DATA, None)
-        elif error_code == DownloadResults.INTERNAL_ERROR:
-            print "Error: Internal server error (%s)" % results
-            return (DownloadReturn.INTERNAL_ERROR, None)
-        else:
-            print "Unknown return code %d" % error_code
+        clean_results(results['matches'])
+        return results
+
+    except xmlrpclib.Fault, f:
+        print "Error: Server returned error code %s (%s)" % (f.faultCode, f.faultString)
+
     except Exception, e:
+        print "Error: Could not connect to BinCrowd server"
         print e
-        print results
-        return (DownloadReturn.COULDNT_RETRIEVE_DATA, None)
+
+    return None
 
 def download_all_internal():
     """
@@ -1356,10 +1298,12 @@ def download_all_internal():
     # Download all imported functions
     for index in xrange(len(imported_functions)):
         for function_ea, name in imported_functions[index]:
-            param = get_download_params(function_ea, True)
+            value = get_download_params(function_ea, True)
 
-            if not param:
+            if not value:
                 continue
+
+            (_, param) = value
 
             collected_params.append(param)
             eas.append(function_ea)
@@ -1374,24 +1318,22 @@ def download_all_internal():
         if not fn:
             continue
 
-        if get_imported_function(function_ea):
-            continue
-
         params = get_download_params(function_ea, True)
 
         if not params:
             continue
 
-        if not params['edges']:
+        (imported, params) = params
+        if imported:
             continue
 
         collected_params.append(params)
         eas.append(function_ea)
         edge_counts.append(len(params['edges']))
 
-    (error_code, result) = download_overview(collected_params)
+    result = download_overview(collected_params)
 
-    if error_code != DownloadReturn.SUCCESS:
+    if not result:
         return
 
     print "Processing downloaded information: %s" % datetime.now()
@@ -1435,6 +1377,72 @@ def bincrowd_download_all():
         download_all_internal()
     except Exception, e:
         print e
+
+
+def get_server_info(uri, username, password):
+    """
+    Call get_server_info RPC function to check the credentials and get the
+    server configuration parameters. We'll possibly have to adjust the size of
+    the function description chunks for up-/download.
+    """
+    try:
+        print "Getting server information: %s" % datetime.now()
+
+        rpc_srv = xmlrpclib.ServerProxy(uri, allow_none=True)
+        response = rpc_srv.get_server_info(username, password)
+
+        debug_print("Server supports the following API versions: %s" % response['supported_versions'])
+        debug_print("Maximum number of function matches returned per request: %d" % response['max_download_results'])
+
+        print "Server information successfully retrieved: %s" % datetime.now()
+
+        return response
+
+    except xmlrpclib.Fault, f:
+        print "Error: Server returned error code %s (%s)" % (f.faultCode, f.faultString)
+
+    except Exception, e:
+        print "Error: Could not connect to BinCrowd server"
+        print e
+
+    return None
+
+
+def get_user_credentials():
+    global bincrowd
+
+    # TODO: re-read config file and check parameters if file was modified since last check
+    if bincrowd is None:
+        uri, username, password = read_config_file()
+
+        if uri is None:
+            #bincrowd = None
+            print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
+            return (None, None, None)
+
+        server_info = get_server_info(uri, username, password)
+
+        if not server_info:
+            #bincrowd = None
+            return (None, None, None)
+
+        if CLIENTVERSION not in server_info['supported_versions']:
+            #bincrowd = None
+            print "Error: Server doesn't support XMLRPC API %s. Please upgrade this Plugin." % CLIENTVERSION
+            return (None, None, None)
+
+        bincrowd = {
+                   'uri': uri,
+                   'username': username,
+                   'password': password
+                   }
+
+    uri = bincrowd['uri']
+    username = bincrowd['username']
+    password = bincrowd['password']
+
+    return (uri, username, password)
+
 
 """
 REGISTER IDA SHORTCUTS
