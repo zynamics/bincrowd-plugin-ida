@@ -445,7 +445,7 @@ def edges_array_to_dict(edges):
 
     return output_list
 
-def read_config_file():
+def read_config_file(configuration_file):
     """ Reads the BinCrowd IDA plugin configuration file.
 
         Returns:
@@ -454,13 +454,6 @@ def read_config_file():
           (None, None, None) is returned.
     """
     debug_print("Reading configuration file")
-
-    directory = os.path.dirname(SCRIPT_DIRECTORY)
-
-    configuration_file = directory + "/bincrowd.cfg"
-
-    debug_print("Determined script directory: %s" % directory)
-    debug_print("Determined configuration file : %s" % configuration_file)
 
     try:
         config_file = open(configuration_file, "r")
@@ -1411,30 +1404,40 @@ def get_server_info(uri, username, password):
 def get_user_credentials():
     global bincrowd
 
-    # TODO: re-read config file and check parameters if file was modified since last check
-    if bincrowd is None:
-        uri, username, password = read_config_file()
+    try:
+        directory = os.path.dirname(SCRIPT_DIRECTORY)
+        configuration_file = directory + "/bincrowd.cfg"
+
+        debug_print("Determined script directory: %s" % directory)
+        debug_print("Determined configuration file : %s" % configuration_file)
+
+        mtime = os.path.getmtime(configuration_file)
+
+    except:
+        print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
+        return (None, None, None)
+
+    if bincrowd is None or bincrowd['mtime'] != mtime:
+        uri, username, password = read_config_file(configuration_file)
 
         if uri is None:
-            #bincrowd = None
             print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
             return (None, None, None)
 
         server_info = get_server_info(uri, username, password)
 
         if not server_info:
-            #bincrowd = None
             return (None, None, None)
 
         if CLIENTVERSION not in server_info['supported_versions']:
-            #bincrowd = None
             print "Error: Server doesn't support XMLRPC API %s. Please upgrade this Plugin." % CLIENTVERSION
             return (None, None, None)
 
         bincrowd = {
                    'uri': uri,
                    'username': username,
-                   'password': password
+                   'password': password,
+                   'mtime': mtime
                    }
 
     uri = bincrowd['uri']
