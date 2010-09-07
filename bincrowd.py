@@ -598,7 +598,7 @@ def get_regular_function_upload_params(fn):
     e = extract_edge_tuples_from_graph(p)
 
     if not e:
-        print "0x%X: '%s' was not uploaded because it is too small." % (fn.startEA, name)
+        debug_print("0x%X: '%s' was not uploaded because it is too small." % (fn.startEA, name))
         return None
 
     edges = edges_array_to_dict(e)
@@ -654,14 +654,19 @@ def upload(functions):
         return None
 
     function_descriptions = []
+    omitted = 0
     for fn in functions:
         params = get_regular_function_upload_params(fn)
 
         if params:
             function_descriptions.append(params)
+        else:
+            omitted = omitted + 1
 
     if not function_descriptions:
         return None
+
+    print "Omitted functions (too small): %d" % omitted
 
     print "Starting upload: %s" % datetime.now()
 
@@ -838,7 +843,7 @@ def get_regular_function_download_params(fn, skip_small_functions):
     e = extract_edge_tuples_from_graph(p)
 
     if skip_small_functions and len(e) < 10:
-        print "Function %s is too small" % get_function_name(fn.startEA)
+        debug_print("Function %s is too small" % get_function_name(fn.startEA))
         return None
 
     return {'prime_product' : '%d' % calculate_prime_product(p), 'edges' : edges_array_to_dict(e) }
@@ -1305,6 +1310,7 @@ def download_all_internal():
     print "Collecting regular functions: %s" % datetime.now()
 
     # Download all regular functions
+    omitted = 0
     for function_ea in idautils.Functions():
         fn = idaapi.get_func(function_ea)
 
@@ -1314,6 +1320,7 @@ def download_all_internal():
         params = get_download_params(function_ea, True)
 
         if not params:
+            omitted = omitted + 1
             continue
 
         (imported, params) = params
@@ -1323,6 +1330,8 @@ def download_all_internal():
         collected_params.append(params)
         eas.append(function_ea)
         edge_counts.append(len(params['edges']))
+
+    print "Omitted functions (too small): %d" % omitted
 
     result = download_overview(collected_params)
 
