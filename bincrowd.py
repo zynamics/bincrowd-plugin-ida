@@ -581,7 +581,7 @@ def get_processor_name(inf):
     else:
         return inf.procName
 
-def get_regular_function_upload_params(fn):
+def get_regular_function_upload_params(fn, min_edges=0):
     """ Calculates the parameters to be sent when the given function is uploaded
 
         Parameters:
@@ -597,7 +597,7 @@ def get_regular_function_upload_params(fn):
     p = proxyGraph(fn.startEA)
     e = extract_edge_tuples_from_graph(p)
 
-    if not e:
+    if not e or len(e) < min_edges:
         debug_print("0x%X: '%s' was not uploaded because it is too small." % (fn.startEA, name))
         return None
 
@@ -653,10 +653,13 @@ def upload(functions):
     if not username:
         return None
 
+    global bincrowd
+    min_edges = bincrowd['min_edges']
+
     function_descriptions = []
     omitted = 0
     for fn in functions:
-        params = get_regular_function_upload_params(fn)
+        params = get_regular_function_upload_params(fn, min_edges)
 
         if params:
             function_descriptions.append(params)
@@ -664,6 +667,7 @@ def upload(functions):
             omitted = omitted + 1
 
     if not function_descriptions:
+        print "No functions to upload (omitted: %d)" % omitted
         return None
 
     print "Omitted functions (too small): %d" % omitted
@@ -735,8 +739,14 @@ def bincrowd_upload_internal(ea=None):
     if result:
         if result[0] == 0:
             print "Upload was successful: Changed existing function"
-        else:
+        elif result[0] == 1:
             print "Upload was successful: Added new function"
+        elif result[0] == -1:
+            print "Upload was unsuccessful: Function too small"
+        elif result[0] < 0:
+            print "Upload was unsuccessful"
+        else:
+            print "Upload was successful"
 
 def bincrowd_upload(ea=None):
     """ Uploads information for the function at the given ea.
@@ -798,14 +808,24 @@ def bincrowd_upload_all_internal():
     result_list = result_list + tempresults
 
     total_functions = len(functions_to_upload)
-    uploaded_functions = len(result_list)
-    added_functions = sum(result_list)
-    updated_functions = uploaded_functions - added_functions
+    added_functions = 0
+    updated_functions = 0
+    ignored_functions = 0
+    for result in result_list:
+        if result == 0:
+            updated_functions = updated_functions + 1
+        elif result == 1:
+            added_functions = added_functions + 1
+        elif result < 0:
+            ignored_functions = ignored_functions + 1
+
+    uploaded_functions = updated_functions + added_functions
 
     print "All function information was uploaded"
     print "  Successful: %d (%.02f%%)" % (uploaded_functions, 100.0 * uploaded_functions / total_functions)
     print "  Added new functions: %d (%.02f%%)" % (added_functions, 100.0 * added_functions / total_functions)
     print "  Changed existing functions: %d (%.02f%%)" % (updated_functions, 100.0 * updated_functions / total_functions)
+    print "  Ignored functions: %d (%.02f%%)" % (ignored_functions, 100.0 * ignored_functions / total_functions)
 
 def bincrowd_upload_all():
     """ Uploads information about all functions in the IDB.
@@ -1395,6 +1415,7 @@ def get_server_info(uri, username, password):
 
         debug_print("Server supports the following API versions: %s" % response['supported_versions'])
         debug_print("Maximum number of function matches returned per request: %d" % response['max_download_results'])
+        debug_print("Minimum number of edges required for uploaded functions: %d" % response['min_edges'])
 
         print "Server information successfully retrieved: %s" % datetime.now()
 
@@ -1442,11 +1463,14 @@ def get_user_credentials():
             print "Error: Server doesn't support XMLRPC API %s. Please upgrade this Plugin." % CLIENTVERSION
             return (None, None, None)
 
+        min_edges = server_info['min_edges'] if server_info.has_key('min_edges') else 0
+
         bincrowd = {
                    'uri': uri,
                    'username': username,
                    'password': password,
-                   'mtime': mtime
+                   'mtime': mtime,
+                   'min_edges': min_edges,
                    }
 
     uri = bincrowd['uri']
