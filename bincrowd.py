@@ -5,6 +5,7 @@ import sys
 import os
 from datetime import datetime
 import xmlrpclib
+import httplib
 from idaapi import Choose2
 import idautils
 import locale
@@ -33,6 +34,21 @@ SCRIPT_DIRECTORY = sys.argv[0]
 def debug_print(string):
     if DEBUG:
         print string
+
+class ProxiedTransport(xmlrpclib.Transport):
+    def set_proxy(self, proxy):
+        self.proxy = proxy
+
+    def make_connection(self, host):
+        self.realhost = host
+        h = httplib.HTTP(self.proxy)
+        return h
+
+    def send_request(self, connection, handler, request_body):
+        connection.putrequest("POST", 'http://%s%s' % (self.realhost, handler))
+
+    def send_host(self, connection, host):
+        connection.putheader('Host', self.realhost)
 
 class FunctionSelectionDialog(Choose2):
     def __init__(self, title, items, next_page):
@@ -449,9 +465,9 @@ def read_config_file(configuration_file):
     """ Reads the BinCrowd IDA plugin configuration file.
 
         Returns:
-          A triple of (url, username, password) which describes the location
+          A tuple of (url, username, password, proxy) which describes the location
           of the BinCrowd server and how to access it. If anything goes wrong,
-          (None, None, None) is returned.
+          (None, None, None, None) is returned.
     """
     debug_print("Reading configuration file")
 
@@ -461,11 +477,19 @@ def read_config_file(configuration_file):
         config_file.close()
 
         if len(lines) < 3:
-            return (None, None, None)
+            return (None, None, None, None)
 
-        return (lines[0].rstrip("\r\n"), lines[1].rstrip("\r\n"), lines[2].rstrip("\r\n"))
+        url = lines[0].rstrip("\r\n")
+        username = lines[1].rstrip("\r\n")
+        password = lines[2].rstrip("\r\n")
+        if len(lines) > 3:
+            proxy = lines[3].rstrip("\r\n")
+        else:
+            proxy = None
+
+        return (url, username, password, proxy)
     except:
-        return (None, None, None)
+        return (None, None, None, None)
 
 def get_frame_information(ea):
     """ Analyzes the stack frame of the function at the given ea for information
@@ -648,7 +672,7 @@ def upload(functions):
           successfully.
     """
 
-    uri, username, password = get_user_credentials()
+    uri, username, password, proxy = get_user_credentials()
 
     if not username:
         return None
@@ -675,7 +699,7 @@ def upload(functions):
     print "Starting upload: %s" % datetime.now()
 
     try:
-        rpc_srv = xmlrpclib.ServerProxy(uri, allow_none=True)
+        rpc_srv = xmlrpclib.ServerProxy(uri, allow_none=True, transport=proxy)
     except:
         print "Error: Could not connect to BinCrowd server"
         return None
@@ -1171,7 +1195,7 @@ def download_overview(functions):
           None, if an error occured. Otherwise, a tuple of (match quality, function matches).
     """
 
-    uri, username, password = get_user_credentials()
+    uri, username, password, proxy = get_user_credentials()
 
     if not username:
         return None
@@ -1190,7 +1214,7 @@ def download_overview(functions):
         print "Downloading function information for chunk %d: %s" % (index, datetime.now())
 
         try:
-            rpc_srv = xmlrpclib.ServerProxy(uri, allow_none=True)
+            rpc_srv = xmlrpclib.ServerProxy(uri, allow_none=True, transport=proxy)
             response = rpc_srv.get_functions_overview(*parameters)
 
         except xmlrpclib.Fault, f:
@@ -1241,7 +1265,7 @@ def get_function_matches(function, start, max_results):
           None, if an error occured. Otherwise, the downloaded matches.
     """
 
-    uri, username, password = get_user_credentials()
+    uri, username, password, proxy = get_user_credentials()
 
     if not username:
         return None
@@ -1257,7 +1281,7 @@ def get_function_matches(function, start, max_results):
     print "Downloading function information: %s" % datetime.now()
 
     try:
-        rpc_srv = xmlrpclib.ServerProxy(uri, allow_none=True)
+        rpc_srv = xmlrpclib.ServerProxy(uri, allow_none=True, transport=proxy)
         results = rpc_srv.get_function_matches(*parameters)
 
         clean_results(results['matches'])
@@ -1401,7 +1425,7 @@ def bincrowd_download_all():
         print e
 
 
-def get_server_info(uri, username, password):
+def get_server_info(uri, username, password, proxy):
     """
     Call get_server_info RPC function to check the credentials and get the
     server configuration parameters. We'll possibly have to adjust the size of
@@ -1410,7 +1434,7 @@ def get_server_info(uri, username, password):
     try:
         print "Getting server information: %s" % datetime.now()
 
-        rpc_srv = xmlrpclib.ServerProxy(uri, allow_none=True)
+        rpc_srv = xmlrpclib.ServerProxy(uri, allow_none=True, transport=proxy)
         response = rpc_srv.get_server_info(username, password)
 
         debug_print("Server supports the following API versions: %s" % response['supported_versions'])
@@ -1445,23 +1469,29 @@ def get_user_credentials():
 
     except:
         print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
-        return (None, None, None)
+        return (None, None, None, None)
 
     if bincrowd is None or bincrowd['mtime'] != mtime:
-        uri, username, password = read_config_file(configuration_file)
+        uri, username, password, proxy_url = read_config_file(configuration_file)
 
         if uri is None:
             print "Error: Could not read config file. Please check readme.txt to learn how to configure BinCrowd."
-            return (None, None, None)
+            return (None, None, None, None)
 
-        server_info = get_server_info(uri, username, password)
+        if proxy_url is None:
+            proxy = None
+        else:
+            proxy = ProxiedTransport()
+            proxy.set_proxy(proxy_url)
+
+        server_info = get_server_info(uri, username, password, proxy)
 
         if not server_info:
-            return (None, None, None)
+            return (None, None, None, None)
 
         if CLIENTVERSION not in server_info['supported_versions']:
             print "Error: Server doesn't support XMLRPC API %s. Please upgrade this Plugin." % CLIENTVERSION
-            return (None, None, None)
+            return (None, None, None, None)
 
         min_edges = server_info['min_edges'] if server_info.has_key('min_edges') else 0
 
@@ -1471,13 +1501,15 @@ def get_user_credentials():
                    'password': password,
                    'mtime': mtime,
                    'min_edges': min_edges,
+                   'proxy': proxy,
                    }
 
     uri = bincrowd['uri']
     username = bincrowd['username']
     password = bincrowd['password']
+    proxy = bincrowd['proxy']
 
-    return (uri, username, password)
+    return (uri, username, password, proxy)
 
 
 """
