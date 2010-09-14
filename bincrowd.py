@@ -20,6 +20,7 @@ BINCROWD PARAMETERS
 """
 CLIENTVERSION = 2
 RESULTS_PER_PAGE = 25
+UPLOAD_CHUNK_SIZE = 200
 UPLOADHOTKEY = "Ctrl-1"
 DOWNLOADHOTKEY = "Ctrl-2"
 UPLOADALLHOTKEY = "Ctrl-3"
@@ -680,22 +681,43 @@ def upload(functions):
     global bincrowd
     min_edges = bincrowd['min_edges']
 
+    results = []
     function_descriptions = []
     omitted = 0
+    chunk = 0
     for fn in functions:
         params = get_regular_function_upload_params(fn, min_edges)
 
-        if params:
-            function_descriptions.append(params)
-        else:
+        if not params:
             omitted = omitted + 1
+        else:
+            function_descriptions.append(params)
+            if len(function_descriptions) == UPLOAD_CHUNK_SIZE:
+                first = (chunk * UPLOAD_CHUNK_SIZE) + 1
+                chunk = chunk + 1
+                last = chunk * UPLOAD_CHUNK_SIZE
+                print "Uploading functions %d to %d" % (first, last)
+                response = do_upload(uri, username, password, proxy, function_descriptions)
+                results = results + response
+                function_descriptions = []
 
-    if not function_descriptions:
+    if len(function_descriptions) > 0:
+        # Uploading last chunk
+        first = (chunk * UPLOAD_CHUNK_SIZE) + 1
+        chunk = chunk + 1
+        last = chunk * UPLOAD_CHUNK_SIZE
+        print "Uploading functions %d to %d (last chunk)" % (first, last)
+        response = do_upload(uri, username, password, proxy, function_descriptions)
+        results = results + response
+
+    if omitted == len(functions):
         print "No functions to upload (omitted: %d)" % omitted
         return None
 
     print "Omitted functions (too small): %d" % omitted
+    return results
 
+def do_upload(uri, username, password, proxy, function_descriptions):
     print "Starting upload: %s" % datetime.now()
 
     try:
@@ -800,36 +822,14 @@ def bincrowd_upload_all_internal():
     """
     functions_to_upload = []
 
+    print "Gathering functions: %s" % datetime.now()
+
     for ea in Functions(0, 0xFFFFFFFF):
 #        fn = idaapi.get_func(ea)
 #        functions_to_upload.append(fn)
         functions_to_upload.append(MyFunction(ea))
 
-    result_list = []
-
-    temp_last = len(functions_to_upload)
-    temp_range = range( 0, len(functions_to_upload), 1000 )
-    for i in range( 1, len(temp_range)):
-        lower = temp_range[i-1]
-        upper = temp_range[i]
-        print "Uploading functions %d to %d" % (lower, upper)
-        tempresults = upload( functions_to_upload[ lower : upper ] )
-
-        if not tempresults:
-            return
-
-        result_list = result_list + tempresults
-
-    print "Uploading last chunk"
-    if len(temp_range) > 0:
-        tempresults = upload( functions_to_upload[ temp_range[-1]:] )
-    else:
-        tempresults = upload( functions_to_upload[0:] )
-
-    if not tempresults:
-        return
-
-    result_list = result_list + tempresults
+    result_list = upload(functions_to_upload)
 
     total_functions = len(functions_to_upload)
     added_functions = 0
@@ -1200,7 +1200,7 @@ def download_overview(functions):
     if not username:
         return None
 
-    CHUNK_SIZE = 1000
+    CHUNK_SIZE = UPLOAD_CHUNK_SIZE
     chunks = [ functions[x:x+CHUNK_SIZE] for x in range( 0, len(functions), CHUNK_SIZE ) ]
     file_to_count = {}
     function_matches = []
